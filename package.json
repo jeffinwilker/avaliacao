@@ -1,0 +1,27 @@
+{
+  "name": "avaliacoes",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema de avaliações para lojas online (Nuvemshop / Tray) — inspirado em Lily Reviews",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:widget": "npm --workspace @avaliacoes/widget run dev",
+    "dev:admin": "npm --workspace @avaliacoes/admin run dev",
+    "build:widget": "npm --workspace @avaliacoes/widget run build",
+    "build:admin": "npm --workspace @avaliacoes/admin run build",
+    "build:shared": "npm --workspace @avaliacoes/shared run build",
+    "build:widget:copy": "npm run build:widget && node scripts/copy-widget.mjs",
+    "build": "npm run build:shared && npm run build:widget:copy && npm run build:admin",
+    "start:admin": "npm --workspace @avaliacoes/admin run start",
+    "typecheck": "npm --workspaces --if-present run typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
