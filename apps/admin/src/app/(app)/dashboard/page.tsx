@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { Stars } from "@/components/Stars";
 import { StatusBadge } from "@/components/StatusBadge";
+import { pickOne } from "@/lib/pick-one";
 import Link from "next/link";
 
 async function getStoreId(): Promise<string | null> {
@@ -75,24 +76,29 @@ export default async function Dashboard() {
         </div>
         {recent && recent.length > 0 ? (
           <ul className="divide-y divide-gray-100">
-            {recent.map((r) => (
-              <li key={r.id} className="px-5 py-3 flex items-center gap-4">
-                <Stars value={r.rating} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">
-                    {r.customer_name}
-                    {r.products && (
-                      <span className="text-gray-500 font-normal">
-                        {" "}
-                        — {(r.products as { name: string }).name}
-                      </span>
-                    )}
+            {recent.map((r) => {
+              const product = pickOne<{ name: string }>(r.products);
+              return (
+                <li key={r.id} className="px-5 py-3 flex items-center gap-4">
+                  <Stars value={r.rating} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {r.customer_name}
+                      {product && (
+                        <span className="text-gray-500 font-normal">
+                          {" "}
+                          — {product.name}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-500 truncate">
+                      {r.comment}
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-500 truncate">{r.comment}</div>
-                </div>
-                <StatusBadge status={r.status} />
-              </li>
-            ))}
+                  <StatusBadge status={r.status} />
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <div className="px-5 py-12 text-center text-gray-500 text-sm">

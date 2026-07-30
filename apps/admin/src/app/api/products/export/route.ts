@@ -38,13 +38,14 @@ export async function GET() {
   ];
   XLSX.utils.book_append_sheet(wb, ws, "Produtos");
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const blob = new Blob([new Uint8Array(buf)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 
   const filename = `produtos-${new Date().toISOString().slice(0, 10)}.xlsx`;
-  return new NextResponse(buf, {
+  return new NextResponse(blob, {
     status: 200,
     headers: {
-      "Content-Type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });

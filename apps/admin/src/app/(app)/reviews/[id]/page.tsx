@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Stars } from "@/components/Stars";
 import { StatusBadge } from "@/components/StatusBadge";
+import { pickOne } from "@/lib/pick-one";
 import { ReviewActions } from "./ReviewActions";
 
 const dtf = new Intl.DateTimeFormat("pt-BR", {
@@ -62,22 +63,26 @@ export default async function ReviewDetail({
           <Stars value={review.rating} size={24} />
         </div>
 
-        {review.products && (
-          <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-3 mb-4">
-            {(review.products as { image_url: string | null }).image_url && (
-              <img
-                src={(review.products as { image_url: string }).image_url}
-                alt=""
-                className="w-12 h-12 rounded object-cover"
-              />
-            )}
-            <div className="text-sm">
-              <div className="font-medium">
-                {(review.products as { name: string }).name}
+        {(() => {
+          const product = pickOne<{ name: string; image_url: string | null }>(
+            review.products
+          );
+          if (!product) return null;
+          return (
+            <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-3 mb-4">
+              {product.image_url && (
+                <img
+                  src={product.image_url}
+                  alt=""
+                  className="w-12 h-12 rounded object-cover"
+                />
+              )}
+              <div className="text-sm">
+                <div className="font-medium">{product.name}</div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {review.title && (
           <h2 className="text-lg font-semibold mb-2">{review.title}</h2>
@@ -88,23 +93,28 @@ export default async function ReviewDetail({
 
         {review.media && review.media.length > 0 && (
           <div className="flex gap-2 mt-4 flex-wrap">
-            {(review.media as { id: string; type: string; url: string | null }[]).map(
-              (m) =>
-                m.type === "video" ? (
-                  <video
-                    key={m.id}
-                    src={m.url ?? undefined}
-                    controls
-                    className="w-32 h-32 rounded object-cover border border-gray-200"
-                  />
-                ) : (
-                  <img
-                    key={m.id}
-                    src={m.url ?? undefined}
-                    alt=""
-                    className="w-32 h-32 rounded object-cover border border-gray-200"
-                  />
-                )
+            {(
+              review.media as unknown as Array<{
+                id: string;
+                type: string;
+                url: string | null;
+              }>
+            ).map((m) =>
+              m.type === "video" ? (
+                <video
+                  key={m.id}
+                  src={m.url ?? undefined}
+                  controls
+                  className="w-32 h-32 rounded object-cover border border-gray-200"
+                />
+              ) : (
+                <img
+                  key={m.id}
+                  src={m.url ?? undefined}
+                  alt=""
+                  className="w-32 h-32 rounded object-cover border border-gray-200"
+                />
+              )
             )}
           </div>
         )}

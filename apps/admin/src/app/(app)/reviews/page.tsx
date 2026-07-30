@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Stars } from "@/components/Stars";
 import { StatusBadge } from "@/components/StatusBadge";
+import { pickOne } from "@/lib/pick-one";
 import type { ReviewStatus } from "@avaliacoes/shared";
 
 const dtf = new Intl.DateTimeFormat("pt-BR", {
@@ -65,7 +66,7 @@ export default async function ReviewsPage({
                 <tr key={r.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium">{r.customer_name}</td>
                   <td className="px-4 py-3 text-gray-700">
-                    {(r.products as { name: string } | null)?.name ?? "—"}
+                    {pickOne<{ name: string }>(r.products)?.name ?? "—"}
                   </td>
                   <td className="px-4 py-3">
                     <Stars value={r.rating} />

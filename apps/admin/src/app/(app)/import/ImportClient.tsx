@@ -524,8 +524,9 @@ function ProductPicker({
   const searchResults = useMemo(() => {
     if (!query.trim()) return products.slice(0, 20);
     const q = normalize(query);
+    const qbg = toBigrammed(query);
     return products
-      .map((p) => ({ p, score: similarity(q, p.name) }))
+      .map((p) => ({ p, score: similarityPre(qbg, toBigrammed(p.name)) }))
       .filter((r) => r.score > 0.2 || normalize(r.p.name).includes(q))
       .sort((a, b) => b.score - a.score)
       .slice(0, 20)

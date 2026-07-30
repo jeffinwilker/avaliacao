@@ -94,12 +94,13 @@ export async function GET() {
   XLSX.utils.book_append_sheet(wb, wsInstr, "Instruções");
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const blob = new Blob([new Uint8Array(buf)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 
-  return new NextResponse(buf, {
+  return new NextResponse(blob, {
     status: 200,
     headers: {
-      "Content-Type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="modelo-importacao-avaliacoes.xlsx"`,
     },
   });
