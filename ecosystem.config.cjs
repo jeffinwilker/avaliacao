@@ -9,7 +9,9 @@ module.exports = {
       args: "start",
       env: {
         NODE_ENV: "production",
-        PORT: "3000",
+        // Porta 3000 já é usada por outros apps PM2 do VPS.
+        // Nginx faz proxy do subdomínio para essa porta.
+        PORT: "3001",
       },
       autorestart: true,
       max_memory_restart: "500M",

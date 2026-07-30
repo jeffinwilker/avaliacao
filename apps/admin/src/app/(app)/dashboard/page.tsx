@@ -45,11 +45,9 @@ export default async function Dashboard() {
         .select("*", { count: "exact", head: true })
         .eq("store_id", storeId)
         .eq("status", "pending"),
-      admin
-        .rpc("avg_rating_for_store", { p_store: storeId })
-        .single<{ avg: number }>()
-        .then((r) => r)
-        .catch(() => ({ data: null })),
+      admin.rpc("avg_rating_for_store", { p_store: storeId }).single<{
+        avg: number;
+      }>(),
       admin
         .from("reviews")
         .select("id, customer_name, rating, comment, status, created_at, products(name)")

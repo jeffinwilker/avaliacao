@@ -12,9 +12,8 @@
     "dev:admin": "npm --workspace @avaliacoes/admin run dev",
     "build:widget": "npm --workspace @avaliacoes/widget run build",
     "build:admin": "npm --workspace @avaliacoes/admin run build",
-    "build:shared": "npm --workspace @avaliacoes/shared run build",
     "build:widget:copy": "npm run build:widget && node scripts/copy-widget.mjs",
-    "build": "npm run build:shared && npm run build:widget:copy && npm run build:admin",
+    "build": "npm run build:widget:copy && npm run build:admin",
     "start:admin": "npm --workspace @avaliacoes/admin run start",
     "typecheck": "npm --workspaces --if-present run typecheck"
   },
