@@ -3,9 +3,12 @@ import { IntegrationView } from "./IntegrationView";
 
 export default async function IntegrationPage() {
   const admin = createAdminClient();
+  // Só considera "conectada" se tiver access_token. Isso permite reconectar
+  // após um Desconectar sem perder os dados históricos (reviews, produtos).
   const { data: store } = await admin
     .from("stores")
     .select("id, name, external_store_id, api_key, domain, created_at")
+    .not("access_token", "is", null)
     .limit(1)
     .maybeSingle();
 
