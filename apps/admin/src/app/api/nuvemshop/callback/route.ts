@@ -7,17 +7,21 @@ import { createAdminClient } from "@/lib/supabase/admin";
 //
 // A Nuvemshop redireciona para cá com ?code=... e nós trocamos por access_token.
 
+// Usa a env pública em vez de req.url pra evitar redirect pro host interno
+// (localhost:3002) quando está atrás de um reverse proxy.
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.redirect(new URL("/login", req.url));
+    return NextResponse.redirect(new URL("/login", APP_URL));
   }
 
   const code = req.nextUrl.searchParams.get("code");
   if (!code) {
     return NextResponse.redirect(
-      new URL("/integration?error=missing_code", req.url)
+      new URL("/integration?error=missing_code", APP_URL)
     );
   }
 
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
 
   if (!tokenRes.ok) {
     return NextResponse.redirect(
-      new URL("/integration?error=token_exchange", req.url)
+      new URL("/integration?error=token_exchange", APP_URL)
     );
   }
 
@@ -93,7 +97,7 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/integration?error=${encodeURIComponent(error.message)}`, req.url)
+      new URL(`/integration?error=${encodeURIComponent(error.message)}`, APP_URL)
     );
   }
 
@@ -102,5 +106,5 @@ export async function GET(req: NextRequest) {
     { onConflict: "store_id" }
   );
 
-  return NextResponse.redirect(new URL("/integration?connected=1", req.url));
+  return NextResponse.redirect(new URL("/integration?connected=1", APP_URL));
 }
