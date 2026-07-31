@@ -64,7 +64,7 @@ export function Widget({
             <>
               <div className="av-summary-avg">{stats.averageRating.toFixed(1)}</div>
               <div>
-                <Stars value={Math.round(stats.averageRating)} />
+                <Stars value={stats.averageRating} />
                 <div className="av-summary-text">
                   Baseado em {stats.totalReviews}{" "}
                   {stats.totalReviews === 1 ? "avaliação" : "avaliações"}

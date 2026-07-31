@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { Widget } from "./Widget";
+import { WidgetSummary } from "./WidgetSummary";
 import css from "./styles.css?inline";
 
 // ----------------------------------------------------------------------------
@@ -44,7 +45,7 @@ function mountAll() {
   const tokenFromUrl =
     new URLSearchParams(window.location.search).get("av-token") ?? undefined;
 
-  // Aceita dois seletores: [data-avaliacoes] (moderno) e #avaliacoes-widget (legado)
+  // Widget completo: [data-avaliacoes] (moderno) e #avaliacoes-widget (legado)
   const containers = document.querySelectorAll<HTMLElement>(
     "[data-avaliacoes], #avaliacoes-widget"
   );
@@ -72,6 +73,38 @@ function mountAll() {
           token={tokenFromUrl}
           brandColor={brandColor}
           maxMedia={maxMedia}
+        />
+      </React.StrictMode>
+    );
+  });
+
+  // Mini-widget de summary: [data-avaliacoes-summary]
+  const summaryContainers = document.querySelectorAll<HTMLElement>(
+    "[data-avaliacoes-summary]"
+  );
+  summaryContainers.forEach((container) => {
+    if (container.dataset.avMounted === "1") return;
+    container.dataset.avMounted = "1";
+
+    const productId =
+      container.dataset.productId ?? container.getAttribute("data-product-id");
+    if (!productId) {
+      console.warn(
+        "[avaliacoes-summary] container sem data-product-id",
+        container
+      );
+      return;
+    }
+    const brandColor = container.dataset.brandColor;
+    const target = container.dataset.target;
+
+    ReactDOM.createRoot(container).render(
+      <React.StrictMode>
+        <WidgetSummary
+          apiKey={storeKey}
+          externalProductId={productId}
+          brandColor={brandColor}
+          target={target}
         />
       </React.StrictMode>
     );

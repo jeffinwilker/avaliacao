@@ -21,6 +21,23 @@
   box-sizing: border-box;
 }
 
+/* ---------- Summary inline (mini-widget do topo) ---------- */
+.av-summary-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+.av-summary-inline-link {
+  color: var(--av-brand);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+.av-summary-inline-link:hover {
+  text-decoration: underline;
+}
+
 /* ---------- Header com média ---------- */
 .av-summary {
   display: flex;
