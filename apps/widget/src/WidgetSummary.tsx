@@ -9,6 +9,13 @@ export interface WidgetSummaryProps {
   /** Seletor pra onde rolar ao clicar em "Ver avaliações". Default: primeiro `[data-avaliacoes]` */
   target?: string;
   brandColor?: string;
+  /**
+   * Stats pré-carregados (usado em vitrines/categorias via batch).
+   * - undefined → o componente faz fetch próprio
+   * - null → sem reviews aprovadas (não renderiza)
+   * - objeto → renderiza com esses stats
+   */
+  initialStats?: ProductReviewStats | null;
 }
 
 /**
@@ -20,11 +27,16 @@ export function WidgetSummary({
   externalProductId,
   target,
   brandColor,
+  initialStats,
 }: WidgetSummaryProps) {
-  const [stats, setStats] = useState<ProductReviewStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const hasPreloaded = initialStats !== undefined;
+  const [stats, setStats] = useState<ProductReviewStats | null>(
+    hasPreloaded ? initialStats ?? null : null
+  );
+  const [loading, setLoading] = useState(!hasPreloaded);
 
   useEffect(() => {
+    if (hasPreloaded) return; // já veio via batch
     let cancelled = false;
     listReviews({ apiKey, externalProductId, page: 1, pageSize: 1 })
       .then((res) => {
@@ -39,7 +51,7 @@ export function WidgetSummary({
     return () => {
       cancelled = true;
     };
-  }, [apiKey, externalProductId]);
+  }, [apiKey, externalProductId, hasPreloaded]);
 
   const style = brandColor
     ? ({ "--av-brand": brandColor } as React.CSSProperties)

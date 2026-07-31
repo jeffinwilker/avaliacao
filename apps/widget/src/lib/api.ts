@@ -24,7 +24,31 @@ interface SubmitInput {
   token?: string;
 }
 
-const ADMIN_URL = import.meta.env.VITE_ADMIN_URL ?? "";
+export const ADMIN_URL = import.meta.env.VITE_ADMIN_URL ?? "";
+
+/**
+ * Batch stats para múltiplos produtos (usado em vitrines/categorias).
+ * Retorna um Map external_product_id → stats.
+ */
+export async function fetchStatsBatch(
+  apiKey: string,
+  externalProductIds: string[]
+): Promise<Record<string, import("@avaliacoes/shared").ProductReviewStats>> {
+  if (externalProductIds.length === 0) return {};
+  try {
+    const ids = externalProductIds.map(encodeURIComponent).join(",");
+    const url = `${ADMIN_URL}/api/widget/stats?apiKey=${encodeURIComponent(apiKey)}&productIds=${ids}`;
+    const res = await fetch(url);
+    if (!res.ok) return {};
+    const json = await res.json();
+    return (json.stats ?? {}) as Record<
+      string,
+      import("@avaliacoes/shared").ProductReviewStats
+    >;
+  } catch {
+    return {};
+  }
+}
 
 export async function listReviews(
   params: ListReviewsParams

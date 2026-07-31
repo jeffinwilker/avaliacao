@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Widget } from "./Widget";
 import { WidgetSummary } from "./WidgetSummary";
+import { fetchStatsBatch } from "./lib/api";
 import css from "./styles.css?inline";
 
 // ----------------------------------------------------------------------------
@@ -79,36 +80,57 @@ function mountAll() {
   });
 
   // Mini-widget de summary: [data-avaliacoes-summary]
-  const summaryContainers = document.querySelectorAll<HTMLElement>(
+  // Faz batch fetch de TODOS os stats de uma vez pra evitar N requests
+  // em páginas de vitrine/categoria.
+  mountSummaries(storeKey);
+}
+
+async function mountSummaries(storeKey: string) {
+  const containers = document.querySelectorAll<HTMLElement>(
     "[data-avaliacoes-summary]"
   );
-  summaryContainers.forEach((container) => {
-    if (container.dataset.avMounted === "1") return;
-    container.dataset.avMounted = "1";
+  if (containers.length === 0) return;
 
-    const productId =
-      container.dataset.productId ?? container.getAttribute("data-product-id");
-    if (!productId) {
-      console.warn(
-        "[avaliacoes-summary] container sem data-product-id",
-        container
-      );
+  // Coleta product IDs únicos ainda não montados
+  const toMount: { el: HTMLElement; productId: string }[] = [];
+  const idSet = new Set<string>();
+  containers.forEach((el) => {
+    if (el.dataset.avMounted === "1") return;
+    const pid =
+      el.dataset.productId ?? el.getAttribute("data-product-id") ?? "";
+    if (!pid) {
+      console.warn("[avaliacoes-summary] container sem data-product-id", el);
       return;
     }
-    const brandColor = container.dataset.brandColor;
-    const target = container.dataset.target;
+    toMount.push({ el, productId: pid });
+    idSet.add(pid);
+  });
 
-    ReactDOM.createRoot(container).render(
+  if (toMount.length === 0) return;
+
+  // Batch fetch de stats para todos os produtos visíveis
+  const statsMap = await fetchStatsBatch(storeKey, Array.from(idSet));
+
+  // Renderiza cada summary com stats pré-carregados
+  for (const { el, productId } of toMount) {
+    el.dataset.avMounted = "1";
+    const brandColor = el.dataset.brandColor;
+    const target = el.dataset.target;
+    // initialStats = null quando o produto existe mas sem reviews aprovadas
+    const initialStats = statsMap[productId] ?? null;
+
+    ReactDOM.createRoot(el).render(
       <React.StrictMode>
         <WidgetSummary
           apiKey={storeKey}
           externalProductId={productId}
           brandColor={brandColor}
           target={target}
+          initialStats={initialStats}
         />
       </React.StrictMode>
     );
-  });
+  }
 }
 
 if (document.readyState === "loading") {
