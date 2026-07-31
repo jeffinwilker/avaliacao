@@ -36,8 +36,10 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isAuthPath = pathname.startsWith("/login") || pathname.startsWith("/auth");
   const isApiPath = pathname.startsWith("/api");
+  // Bundle do widget é público (é carregado pelo tema da loja).
+  const isWidgetAsset = pathname.startsWith("/widget");
 
-  if (!user && !isAuthPath && !isApiPath) {
+  if (!user && !isAuthPath && !isApiPath && !isWidgetAsset) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
@@ -54,5 +56,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|widget/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };
