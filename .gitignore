@@ -10,6 +10,9 @@ build/
 out/
 *.tsbuildinfo
 
+# widget bundle (gerado por `npm run build`)
+apps/admin/public/widget/
+
 # env
 .env
 .env.local
