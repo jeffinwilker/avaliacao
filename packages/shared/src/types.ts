@@ -43,6 +43,14 @@ export interface Product {
   name: string;
   imageUrl: string | null;
   url: string | null;
+  /** Preço regular da variante principal */
+  price?: number | null;
+  /** Preço promocional (opcional) */
+  promotionalPrice?: number | null;
+  /** Estoque atual */
+  stock?: number | null;
+  /** ID da variante principal na Nuvemshop */
+  variantId?: string | null;
 }
 
 export interface Order {
