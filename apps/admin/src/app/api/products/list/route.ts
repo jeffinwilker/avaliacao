@@ -13,7 +13,7 @@ export async function GET() {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("products")
-    .select("id, name, external_product_id")
+    .select("id, name, external_product_id, image_url, price, stock")
     .order("name")
     .limit(5000);
 
