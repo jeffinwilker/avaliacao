@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { SyncButton } from "./SyncButton";
 
 const BRL = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -89,23 +90,41 @@ export default async function KitsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {k.nuvemshop_product_id ? (
-                        k.nuvemshop_url ? (
-                          <a
-                            href={k.nuvemshop_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-brand-900 hover:underline text-xs"
+                      {k.sync_error ? (
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="text-red-700 text-xs max-w-[140px] truncate"
+                            title={k.sync_error}
                           >
-                            Ver na loja ↗
-                          </a>
-                        ) : (
-                          <span className="text-green-700 text-xs">Sincronizado</span>
-                        )
+                            Erro: {k.sync_error}
+                          </span>
+                          <SyncButton kitId={k.id} label="Tentar de novo" />
+                        </div>
+                      ) : k.nuvemshop_product_id ? (
+                        <div className="flex items-center gap-2">
+                          {k.nuvemshop_url ? (
+                            <a
+                              href={k.nuvemshop_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-brand-900 hover:underline text-xs"
+                            >
+                              Ver na loja ↗
+                            </a>
+                          ) : (
+                            <span className="text-green-700 text-xs">
+                              Sincronizado
+                            </span>
+                          )}
+                          <SyncButton kitId={k.id} label="↻" />
+                        </div>
                       ) : (
-                        <span className="text-amber-700 text-xs">
-                          Aguardando sync
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-700 text-xs">
+                            Não sincronizado
+                          </span>
+                          <SyncButton kitId={k.id} />
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3">

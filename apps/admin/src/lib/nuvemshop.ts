@@ -109,7 +109,7 @@ export async function createProduct(
     price: number;
     promotional_price?: number;
     stock?: number;
-    imageUrl?: string;
+    images?: string[];
     categoryIds?: number[];
     published?: boolean;
     handle?: string;
@@ -132,8 +132,8 @@ export async function createProduct(
   if (payload.categoryIds && payload.categoryIds.length > 0) {
     body.categories = payload.categoryIds;
   }
-  if (payload.imageUrl) {
-    body.images = [{ src: payload.imageUrl }];
+  if (payload.images && payload.images.length > 0) {
+    body.images = payload.images.map((src) => ({ src }));
   }
   return request<NuvemshopProduct>("POST", storeId, token, "/products", { body });
 }
@@ -146,7 +146,7 @@ export async function updateProduct(
     name?: string;
     description?: string;
     published?: boolean;
-    imageUrl?: string;
+    images?: string[];
     categoryIds?: number[];
   }
 ): Promise<NuvemshopProduct> {
@@ -154,9 +154,22 @@ export async function updateProduct(
   if (payload.name) body.name = { pt: payload.name };
   if (payload.description !== undefined) body.description = { pt: payload.description };
   if (payload.published !== undefined) body.published = payload.published;
-  if (payload.imageUrl) body.images = [{ src: payload.imageUrl }];
+  if (payload.images !== undefined) {
+    body.images = payload.images.map((src) => ({ src }));
+  }
   if (payload.categoryIds) body.categories = payload.categoryIds;
   return request<NuvemshopProduct>("PUT", storeId, token, `/products/${productId}`, { body });
+}
+
+/** Busca um produto (usado para pegar canonical_url + variant id após criar). */
+export async function getProduct(
+  storeId: string,
+  token: string,
+  productId: string | number
+): Promise<NuvemshopProduct> {
+  return request<NuvemshopProduct>("GET", storeId, token, `/products/${productId}`, {
+    params: { fields: "id,canonical_url,variants" },
+  });
 }
 
 export async function updateVariant(

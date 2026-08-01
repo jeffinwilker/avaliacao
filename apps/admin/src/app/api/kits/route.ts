@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeKitPrices, type CreateKitPayload } from "@avaliacoes/shared";
+import { syncKitToNuvemshop } from "@/lib/kit-sync";
 
 // GET /api/kits — lista todos os kits da loja
 export async function GET() {
@@ -96,7 +97,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, id: kit.id });
+  // Cria o produto-kit na Nuvemshop (não bloqueia o save se falhar)
+  const sync = await syncKitToNuvemshop(admin, kit.id);
+
+  return NextResponse.json({
+    ok: true,
+    id: kit.id,
+    syncError: sync.ok ? null : sync.error,
+  });
 }
 
 function validate(body: CreateKitPayload): string | null {

@@ -122,3 +122,20 @@ export function discountPercent(original: number, final: number): number {
   if (!original || original <= 0) return 0;
   return Math.round(((original - final) / original) * 100);
 }
+
+/**
+ * Estoque do kit = quantos kits dá pra montar com o estoque dos itens.
+ * Retorna null (sem controle) se algum item não tem estoque definido.
+ */
+export function computeKitStock(
+  items: Array<{ stock: number | null | undefined; quantity: number }>
+): number | null {
+  let min = Infinity;
+  for (const it of items) {
+    if (it.stock == null) return null;
+    const possible = Math.floor(it.stock / Math.max(1, it.quantity));
+    min = Math.min(min, possible);
+  }
+  return min === Infinity ? null : Math.max(0, min);
+}
+

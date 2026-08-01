@@ -108,10 +108,15 @@ export function KitForm({ mode, kitId, initial }: Props) {
       body: JSON.stringify(payload),
     });
     setSaving(false);
+    const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
       setError(json.error ?? "Falha ao salvar");
       return;
+    }
+    if (json.syncError) {
+      alert(
+        `O kit foi salvo, mas a sincronização com a Nuvemshop falhou:\n\n${json.syncError}\n\nVocê pode tentar sincronizar de novo na lista de kits.`
+      );
     }
     router.push("/kits");
     router.refresh();

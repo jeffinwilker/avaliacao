@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeKitPrices, type UpdateKitPayload } from "@avaliacoes/shared";
+import { syncKitToNuvemshop, deleteKitProduct } from "@/lib/kit-sync";
 
 // GET /api/kits/[id] — obtém um kit com seus itens
 export async function GET(
@@ -117,7 +118,10 @@ export async function PUT(
     }
   }
 
-  return NextResponse.json({ ok: true });
+  // Atualiza o produto-kit na Nuvemshop
+  const sync = await syncKitToNuvemshop(admin, id);
+
+  return NextResponse.json({ ok: true, syncError: sync.ok ? null : sync.error });
 }
 
 // DELETE /api/kits/[id] — remove kit (e futuramente o produto-kit na Nuvemshop)
@@ -131,6 +135,18 @@ export async function DELETE(
 
   const { id } = await params;
   const admin = createAdminClient();
+
+  // Remove o produto-kit da Nuvemshop antes de apagar o registro
+  const { data: kit } = await admin
+    .from("kits")
+    .select("nuvemshop_product_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (kit) {
+    await deleteKitProduct(admin, {
+      nuvemshop_product_id: kit.nuvemshop_product_id ?? null,
+    });
+  }
 
   const { error } = await admin.from("kits").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
