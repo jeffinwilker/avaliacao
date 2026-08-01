@@ -49,7 +49,11 @@ export async function PUT(
   const update: Record<string, unknown> = {};
   if (body.name !== undefined) update.name = body.name;
   if (body.description !== undefined) update.description = body.description;
-  if (body.imageUrl !== undefined) update.image_url = body.imageUrl;
+  if (body.images !== undefined) {
+    const imgs = Array.isArray(body.images) ? body.images.filter(Boolean) : [];
+    update.images = imgs;
+    update.image_url = imgs[0] ?? null;
+  }
   if (body.discountType !== undefined) update.discount_type = body.discountType;
   if (body.discountValue !== undefined) update.discount_value = body.discountValue;
   if (body.active !== undefined) update.active = body.active;

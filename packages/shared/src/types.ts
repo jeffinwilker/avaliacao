@@ -51,6 +51,10 @@ export interface Product {
   stock?: number | null;
   /** ID da variante principal na Nuvemshop */
   variantId?: string | null;
+  /** Descrição HTML do produto */
+  description?: string | null;
+  /** Galeria de imagens (URLs) */
+  images?: string[];
 }
 
 export interface Order {

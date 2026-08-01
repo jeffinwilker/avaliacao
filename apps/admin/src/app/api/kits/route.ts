@@ -58,13 +58,16 @@ export async function POST(req: NextRequest) {
     body.discountValue
   );
 
+  const images = Array.isArray(body.images) ? body.images.filter(Boolean) : [];
+
   const { data: kit, error: kitErr } = await admin
     .from("kits")
     .insert({
       store_id: store.id,
       name: body.name,
       description: body.description ?? null,
-      image_url: body.imageUrl ?? null,
+      image_url: images[0] ?? null,
+      images,
       discount_type: body.discountType,
       discount_value: body.discountValue,
       original_price: original,

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchAllProducts, mainVariant, productName } from "@/lib/nuvemshop";
+import {
+  fetchAllProducts,
+  mainVariant,
+  productName,
+  productDescription,
+} from "@/lib/nuvemshop";
 
 export async function POST() {
   const supabase = await createClient();
@@ -25,11 +30,14 @@ export async function POST() {
 
     const rows = products.map((p) => {
       const variant = mainVariant(p);
+      const images = (p.images ?? []).map((img) => img.src).filter(Boolean);
       return {
         store_id: store.id,
         external_product_id: String(p.id),
         name: productName(p),
-        image_url: p.images?.[0]?.src ?? null,
+        description: productDescription(p),
+        image_url: images[0] ?? null,
+        images,
         url: p.canonical_url ?? null,
         price: variant?.price ? Number(variant.price) : null,
         promotional_price: variant?.promotional_price

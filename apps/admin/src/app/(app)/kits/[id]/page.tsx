@@ -41,10 +41,17 @@ export default async function EditKitPage({
       price: Number(it.product?.price ?? 0),
     }));
 
+  const galleryImages: string[] =
+    Array.isArray(kit.images) && kit.images.length > 0
+      ? (kit.images as string[])
+      : kit.image_url
+      ? [kit.image_url]
+      : [];
+
   const initial = {
     name: kit.name ?? "",
     description: kit.description ?? "",
-    imageUrl: kit.image_url ?? "",
+    images: galleryImages,
     discountType: kit.discount_type as "percent" | "fixed" | "total",
     discountValue: Number(kit.discount_value ?? 0),
     active: kit.active ?? true,

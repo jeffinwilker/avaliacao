@@ -7,6 +7,7 @@ export const MAX_RATING = 5;
 export const MIN_RATING = 1;
 
 export const STORAGE_BUCKET = "review-media";
+export const KIT_STORAGE_BUCKET = "kit-media";
 
 export const DEFAULT_EMAIL_TEMPLATE = `Olá {{nome}},
 

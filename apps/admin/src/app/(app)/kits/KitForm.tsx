@@ -27,7 +27,6 @@ interface CatalogProduct {
 interface SelectedItem {
   productId: string;
   quantity: number;
-  // dados denormalizados pra render
   name: string;
   imageUrl: string | null;
   price: number;
@@ -39,7 +38,7 @@ interface Props {
   initial?: {
     name: string;
     description: string;
-    imageUrl: string;
+    images: string[];
     discountType: KitDiscountType;
     discountValue: number;
     active: boolean;
@@ -51,8 +50,9 @@ export function KitForm({ mode, kitId, initial }: Props) {
   const router = useRouter();
 
   const [name, setName] = useState(initial?.name ?? "");
+  const [items, setItems] = useState<SelectedItem[]>(initial?.items ?? []);
   const [description, setDescription] = useState(initial?.description ?? "");
-  const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? "");
+  const [images, setImages] = useState<string[]>(initial?.images ?? []);
   const [discountType, setDiscountType] = useState<KitDiscountType>(
     initial?.discountType ?? "percent"
   );
@@ -60,12 +60,10 @@ export function KitForm({ mode, kitId, initial }: Props) {
     initial?.discountValue ?? 10
   );
   const [active, setActive] = useState(initial?.active ?? true);
-  const [items, setItems] = useState<SelectedItem[]>(initial?.items ?? []);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Catálogo de produtos (para o multi-select)
   const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
   useEffect(() => {
     fetch("/api/products/list")
@@ -74,13 +72,8 @@ export function KitForm({ mode, kitId, initial }: Props) {
       .catch(() => {});
   }, []);
 
-  // Cálculo de preços em tempo real
   const priced = useMemo(
-    () =>
-      items.map((i) => ({
-        price: i.price,
-        quantity: i.quantity,
-      })),
+    () => items.map((i) => ({ price: i.price, quantity: i.quantity })),
     [items]
   );
   const { original, final } = computeKitPrices(priced, discountType, discountValue);
@@ -89,21 +82,14 @@ export function KitForm({ mode, kitId, initial }: Props) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (!name.trim()) {
-      setError("Informe o nome do kit");
-      return;
-    }
-    if (items.length === 0) {
-      setError("Adicione pelo menos 1 produto");
-      return;
-    }
+    if (!name.trim()) return setError("Informe o nome do kit");
+    if (items.length === 0) return setError("Adicione pelo menos 1 produto");
 
     setSaving(true);
     const payload: CreateKitPayload = {
       name: name.trim(),
       description: description.trim() || undefined,
-      imageUrl: imageUrl.trim() || undefined,
+      images,
       discountType,
       discountValue: Number(discountValue) || 0,
       active,
@@ -116,7 +102,6 @@ export function KitForm({ mode, kitId, initial }: Props) {
 
     const url = mode === "new" ? "/api/kits" : `/api/kits/${kitId}`;
     const method = mode === "new" ? "POST" : "PUT";
-
     const res = await fetch(url, {
       method,
       headers: { "content-type": "application/json" },
@@ -149,43 +134,36 @@ export function KitForm({ mode, kitId, initial }: Props) {
         </div>
       )}
 
-      <Section title="Informações">
-        <Field label="Nome do kit *">
-          <input
-            className="input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={120}
-            required
-          />
-        </Field>
-        <Field label="Descrição">
-          <textarea
-            className="input min-h-[80px]"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            maxLength={2000}
-            placeholder="Aparece na página do kit na loja."
-          />
-        </Field>
-        <Field label="URL da imagem do kit" hint="Opcional. Ex: uma foto promocional.">
-          <input
-            className="input"
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            placeholder="https://..."
-          />
-        </Field>
-      </Section>
-
-      <Section title="Produtos incluídos">
-        <ProductPicker
-          catalog={catalog}
-          selected={items}
-          onChange={setItems}
+      {/* 1. Nome */}
+      <Section title="Nome do kit">
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={120}
+          placeholder="Ex: Kit Home Care Biomix 300ml"
+          required
         />
       </Section>
 
+      {/* 2. Produtos */}
+      <Section title="Produtos incluídos">
+        <ProductPicker catalog={catalog} selected={items} onChange={setItems} />
+      </Section>
+
+      {/* 3. Descrição e imagens (dependem dos produtos escolhidos) */}
+      <Section title="Descrição e imagens">
+        <DescriptionField
+          value={description}
+          onChange={setDescription}
+          items={items}
+        />
+        <div className="border-t border-gray-100 pt-4">
+          <ImagesField value={images} onChange={setImages} items={items} />
+        </div>
+      </Section>
+
+      {/* 4. Desconto */}
       <Section title="Desconto">
         <Field label="Tipo de desconto">
           <div className="flex gap-4 flex-wrap">
@@ -229,10 +207,12 @@ export function KitForm({ mode, kitId, initial }: Props) {
         </Field>
       </Section>
 
+      {/* 5. Preview */}
       <Section title="Preview de preço">
         <PricePreview original={original} final={final} pct={pct} />
       </Section>
 
+      {/* 6. Publicação */}
       <Section title="Publicação">
         <label className="inline-flex items-center gap-2 text-sm">
           <input
@@ -287,6 +267,228 @@ export function KitForm({ mode, kitId, initial }: Props) {
   );
 }
 
+// ==================== DescriptionField ====================
+
+function DescriptionField({
+  value,
+  onChange,
+  items,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  items: SelectedItem[];
+}) {
+  const [loading, setLoading] = useState(false);
+
+  async function mergeDescriptions() {
+    if (items.length === 0) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/products/details", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: items.map((i) => i.productId) }),
+      });
+      const json = await res.json();
+      const parts: string[] = [];
+      for (const p of json.products ?? []) {
+        const text = stripHtml(p.description ?? "").trim();
+        if (text) parts.push(`${p.name}\n${text}`);
+      }
+      if (parts.length === 0) {
+        alert("Os produtos selecionados não têm descrição sincronizada.");
+        return;
+      }
+      const merged = parts.join("\n\n");
+      onChange(value.trim() ? `${value.trim()}\n\n${merged}` : merged);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Field label="Descrição do kit">
+      <textarea
+        className="input min-h-[120px]"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        maxLength={5000}
+        placeholder="Aparece na página do kit na loja."
+      />
+      <button
+        type="button"
+        onClick={mergeDescriptions}
+        disabled={items.length === 0 || loading}
+        className="mt-2 text-sm text-brand-900 border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+      >
+        {loading ? "Juntando..." : "＋ Juntar descrições dos produtos"}
+      </button>
+      {items.length === 0 && (
+        <span className="text-xs text-gray-400 ml-2">
+          adicione produtos primeiro
+        </span>
+      )}
+    </Field>
+  );
+}
+
+// ==================== ImagesField ====================
+
+function ImagesField({
+  value,
+  onChange,
+  items,
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+  items: SelectedItem[];
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    setUploading(true);
+    const uploaded: string[] = [];
+    for (const file of files) {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/kits/upload-image", {
+        method: "POST",
+        body: form,
+      });
+      const json = await res.json();
+      if (res.ok && json.url) uploaded.push(json.url);
+      else alert(json.error ?? "Falha no upload");
+    }
+    onChange(dedupe([...value, ...uploaded]));
+    setUploading(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function pullProductImages() {
+    if (items.length === 0) return;
+    setPulling(true);
+    try {
+      const res = await fetch("/api/products/details", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: items.map((i) => i.productId) }),
+      });
+      const json = await res.json();
+      const imgs: string[] = [];
+      for (const p of json.products ?? []) {
+        for (const src of p.images ?? []) imgs.push(src);
+      }
+      if (imgs.length === 0) {
+        alert("Os produtos selecionados não têm imagens sincronizadas.");
+        return;
+      }
+      onChange(dedupe([...value, ...imgs]));
+    } finally {
+      setPulling(false);
+    }
+  }
+
+  function remove(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
+  }
+
+  function move(idx: number, dir: -1 | 1) {
+    const next = [...value];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">Imagens do kit</label>
+      <p className="text-xs text-gray-500 mb-2">
+        A primeira imagem é a principal (thumbnail). Arraste com as setas pra
+        reordenar.
+      </p>
+
+      <div className="flex flex-wrap gap-3 mb-3">
+        {value.map((url, idx) => (
+          <div
+            key={url}
+            className="relative w-24 h-24 rounded-lg overflow-hidden border border-gray-200 group"
+          >
+            <img src={url} alt="" className="w-full h-full object-cover" />
+            {idx === 0 && (
+              <span className="absolute top-1 left-1 bg-brand-900 text-white text-[10px] px-1.5 py-0.5 rounded">
+                principal
+              </span>
+            )}
+            <div className="absolute inset-x-0 bottom-0 flex justify-between bg-black/50 opacity-0 group-hover:opacity-100 transition">
+              <button
+                type="button"
+                onClick={() => move(idx, -1)}
+                className="text-white text-xs px-1.5 py-1 disabled:opacity-30"
+                disabled={idx === 0}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => remove(idx)}
+                className="text-white text-xs px-1.5 py-1"
+              >
+                🗑
+              </button>
+              <button
+                type="button"
+                onClick={() => move(idx, 1)}
+                className="text-white text-xs px-1.5 py-1 disabled:opacity-30"
+                disabled={idx === value.length - 1}
+              >
+                ›
+              </button>
+            </div>
+          </div>
+        ))}
+        {value.length === 0 && (
+          <div className="w-24 h-24 rounded-lg border border-dashed border-gray-300 flex items-center justify-center text-xs text-gray-400 text-center px-2">
+            sem imagens
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <label className="text-sm text-brand-900 border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
+          {uploading ? "Enviando..." : "⬆ Enviar imagem"}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleUpload}
+            disabled={uploading}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={pullProductImages}
+          disabled={items.length === 0 || pulling}
+          className="text-sm text-brand-900 border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+        >
+          {pulling ? "Buscando..." : "＋ Usar imagens dos produtos"}
+        </button>
+        {items.length === 0 && (
+          <span className="text-xs text-gray-400 self-center">
+            adicione produtos primeiro
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ==================== ProductPicker ====================
 
 function ProductPicker({
@@ -301,7 +503,6 @@ function ProductPicker({
   const [query, setQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
   const selectedIds = new Set(selected.map((s) => s.productId));
 
   const suggestions = useMemo(() => {
@@ -330,7 +531,6 @@ function ProductPicker({
   function remove(idx: number) {
     onChange(selected.filter((_, i) => i !== idx));
   }
-
   function setQty(idx: number, qty: number) {
     onChange(
       selected.map((s, i) => (i === idx ? { ...s, quantity: Math.max(1, qty) } : s))
@@ -364,11 +564,7 @@ function ProductPicker({
                 className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-100 last:border-b-0"
               >
                 {p.image_url ? (
-                  <img
-                    src={p.image_url}
-                    alt=""
-                    className="w-8 h-8 rounded object-cover"
-                  />
+                  <img src={p.image_url} alt="" className="w-8 h-8 rounded object-cover" />
                 ) : (
                   <div className="w-8 h-8 rounded bg-gray-100" />
                 )}
@@ -388,7 +584,7 @@ function ProductPicker({
 
       {anyMissingPrice && (
         <div className="text-xs text-amber-700 mt-2">
-          Alguns produtos estão sem preço no sistema. Sincronize os produtos em{" "}
+          Alguns produtos estão sem preço. Sincronize em{" "}
           <a href="/integration" className="underline">Integração</a>.
         </div>
       )}
@@ -405,11 +601,7 @@ function ProductPicker({
               className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2"
             >
               {item.imageUrl ? (
-                <img
-                  src={item.imageUrl}
-                  alt=""
-                  className="w-10 h-10 rounded object-cover"
-                />
+                <img src={item.imageUrl} alt="" className="w-10 h-10 rounded object-cover" />
               ) : (
                 <div className="w-10 h-10 rounded bg-gray-100" />
               )}
@@ -482,7 +674,18 @@ function PricePreview({
   );
 }
 
-// ==================== micro components ====================
+// ==================== helpers + micro components ====================
+
+function stripHtml(html: string): string {
+  if (typeof document === "undefined") return html;
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  return (tmp.textContent || tmp.innerText || "").replace(/\n{3,}/g, "\n\n");
+}
+
+function dedupe(arr: string[]): string[] {
+  return Array.from(new Set(arr));
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -526,18 +729,11 @@ function RadioOpt({
     <label
       className={clsx(
         "flex-1 min-w-[140px] border rounded-lg p-3 cursor-pointer",
-        checked
-          ? "border-brand-900 bg-gray-50"
-          : "border-gray-200 hover:bg-gray-50"
+        checked ? "border-brand-900 bg-gray-50" : "border-gray-200 hover:bg-gray-50"
       )}
     >
       <div className="flex items-center gap-2">
-        <input
-          type="radio"
-          checked={checked}
-          onChange={onChange}
-          className="accent-black"
-        />
+        <input type="radio" checked={checked} onChange={onChange} className="accent-black" />
         <span className="font-medium text-sm">{label}</span>
       </div>
       <div className="text-xs text-gray-500 mt-1 ml-6">{hint}</div>

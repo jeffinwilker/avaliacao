@@ -11,6 +11,8 @@ export interface Kit {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  /** Galeria de imagens (a primeira é a principal/imageUrl) */
+  images: string[];
   discountType: KitDiscountType;
   discountValue: number;
   nuvemshopProductId: string | null;
@@ -52,7 +54,8 @@ export interface KitItem {
 export interface CreateKitPayload {
   name: string;
   description?: string;
-  imageUrl?: string;
+  /** Galeria de imagens. image_url será a primeira. */
+  images?: string[];
   discountType: KitDiscountType;
   discountValue: number;
   active?: boolean;

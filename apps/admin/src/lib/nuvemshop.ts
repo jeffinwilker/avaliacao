@@ -18,6 +18,7 @@ export interface NuvemshopVariant {
 export interface NuvemshopProduct {
   id: number;
   name: { pt?: string; es?: string; en?: string };
+  description?: { pt?: string; es?: string; en?: string };
   handle?: { pt?: string; es?: string; en?: string };
   images?: Array<{ src: string }>;
   variants?: NuvemshopVariant[];
@@ -87,7 +88,7 @@ export async function fetchAllProducts(
       params: {
         page,
         per_page: perPage,
-        fields: "id,name,handle,images,variants,canonical_url",
+        fields: "id,name,description,handle,images,variants,canonical_url",
       },
     });
     if (batch.length === 0) break;
@@ -267,5 +268,15 @@ export function productName(product: NuvemshopProduct): string {
     product.name?.es ??
     product.name?.en ??
     `Produto ${product.id}`
+  );
+}
+
+/** Extrai descrição HTML em pt/es/en. */
+export function productDescription(product: NuvemshopProduct): string | null {
+  return (
+    product.description?.pt ??
+    product.description?.es ??
+    product.description?.en ??
+    null
   );
 }
