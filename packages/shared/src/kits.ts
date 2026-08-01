@@ -81,6 +81,15 @@ export interface WidgetKitCard {
   itemsCount: number;
 }
 
+/** Item individual mostrado na página do kit ("Produtos do kit"). */
+export interface WidgetKitContentItem {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  url: string | null;
+  quantity: number;
+}
+
 // ---------- Helpers ----------
 
 /**

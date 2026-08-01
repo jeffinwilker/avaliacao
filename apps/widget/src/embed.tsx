@@ -3,7 +3,8 @@ import ReactDOM from "react-dom/client";
 import { Widget } from "./Widget";
 import { WidgetSummary } from "./WidgetSummary";
 import { WidgetKit } from "./WidgetKit";
-import { fetchStatsBatch, fetchKitsBatch } from "./lib/api";
+import { WidgetKitContents } from "./WidgetKitContents";
+import { fetchStatsBatch, fetchKitsBatch, fetchKitContents } from "./lib/api";
 import css from "./styles.css?inline";
 
 // ----------------------------------------------------------------------------
@@ -87,6 +88,37 @@ function mountAll() {
 
   // Cards de kit: [data-avaliacoes-kit]
   mountKits(storeKey);
+
+  // Lista "Produtos do kit" na página do kit: [data-avaliacoes-kit-items]
+  mountKitContents(storeKey);
+}
+
+async function mountKitContents(storeKey: string) {
+  const containers = document.querySelectorAll<HTMLElement>(
+    "[data-avaliacoes-kit-items]"
+  );
+  containers.forEach(async (el) => {
+    if (el.dataset.avMounted === "1") return;
+    el.dataset.avMounted = "1";
+    const productId =
+      el.dataset.productId ?? el.getAttribute("data-product-id") ?? "";
+    if (!productId) return;
+
+    const data = await fetchKitContents(storeKey, productId);
+    if (!data) return; // não é um kit → não renderiza nada
+
+    const brandColor = el.dataset.brandColor;
+    const title = el.dataset.title;
+    ReactDOM.createRoot(el).render(
+      <React.StrictMode>
+        <WidgetKitContents
+          items={data.items}
+          brandColor={brandColor}
+          title={title}
+        />
+      </React.StrictMode>
+    );
+  });
 }
 
 async function mountKits(storeKey: string) {

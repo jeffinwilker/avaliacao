@@ -103,6 +103,69 @@
   border-radius: 999px;
 }
 
+/* ---------- Produtos do kit (na página do kit) ---------- */
+.av-kitc-wrap {
+  margin: 16px 0;
+  border: 1px solid var(--av-border);
+  border-radius: var(--av-radius);
+  overflow: hidden;
+}
+.av-kitc-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #374151;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--av-border);
+  background: var(--av-bg-subtle);
+}
+.av-kitc-list {
+  display: flex;
+  flex-direction: column;
+}
+.av-kitc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  text-decoration: none;
+  color: inherit;
+  border-bottom: 1px solid var(--av-border);
+  transition: background 0.15s;
+}
+.av-kitc-row:last-child {
+  border-bottom: 0;
+}
+.av-kitc-row:hover {
+  background: var(--av-bg-subtle);
+}
+.av-kitc-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--av-border);
+}
+.av-kitc-thumb-empty {
+  background: var(--av-bg-subtle);
+}
+.av-kitc-info {
+  flex: 1;
+  min-width: 0;
+}
+.av-kitc-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.av-kitc-qty {
+  font-size: 12px;
+  color: var(--av-muted);
+  margin-top: 2px;
+}
+
 /* ---------- Summary inline (mini-widget do topo) ---------- */
 .av-summary-inline {
   display: inline-flex;

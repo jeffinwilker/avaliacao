@@ -27,6 +27,29 @@ interface SubmitInput {
 export const ADMIN_URL = import.meta.env.VITE_ADMIN_URL ?? "";
 
 /**
+ * Conteúdo de um kit (produtos que o compõem). Usado na página do kit.
+ * Retorna null se o produto não for um kit.
+ */
+export async function fetchKitContents(
+  apiKey: string,
+  productId: string
+): Promise<{
+  kitName: string;
+  items: import("@avaliacoes/shared").WidgetKitContentItem[];
+} | null> {
+  try {
+    const url = `${ADMIN_URL}/api/widget/kit-contents?apiKey=${encodeURIComponent(apiKey)}&productId=${encodeURIComponent(productId)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json.items || json.items.length === 0) return null;
+    return { kitName: json.kitName ?? "", items: json.items };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Batch dos kits que contêm cada produto (usado nas páginas de produto).
  * Retorna Map external_product_id → array de cards de kit.
  */
