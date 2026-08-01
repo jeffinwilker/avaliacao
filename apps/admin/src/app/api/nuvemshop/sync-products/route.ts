@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchAllProducts } from "@/lib/nuvemshop";
+import { fetchAllProducts, mainVariant, productName } from "@/lib/nuvemshop";
 
 export async function POST() {
   const supabase = await createClient();
@@ -13,6 +13,7 @@ export async function POST() {
     .from("stores")
     .select("id, external_store_id, access_token")
     .eq("platform", "nuvemshop")
+    .not("access_token", "is", null)
     .maybeSingle();
 
   if (!store?.access_token) {
@@ -22,18 +23,41 @@ export async function POST() {
   try {
     const products = await fetchAllProducts(store.external_store_id, store.access_token);
 
-    const rows = products.map((p) => ({
-      store_id: store.id,
-      external_product_id: String(p.id),
-      name: p.name?.pt ?? p.name?.es ?? p.name?.en ?? "Produto",
-      image_url: p.images?.[0]?.src ?? null,
-      url: null,
-    }));
+    const rows = products.map((p) => {
+      const variant = mainVariant(p);
+      return {
+        store_id: store.id,
+        external_product_id: String(p.id),
+        name: productName(p),
+        image_url: p.images?.[0]?.src ?? null,
+        url: p.canonical_url ?? null,
+        price: variant?.price ? Number(variant.price) : null,
+        promotional_price: variant?.promotional_price
+          ? Number(variant.promotional_price)
+          : null,
+        stock:
+          variant?.stock !== undefined && variant?.stock !== null
+            ? Number(variant.stock)
+            : null,
+        variant_id: variant?.id ? String(variant.id) : null,
+      };
+    });
 
     if (rows.length > 0) {
-      await admin
-        .from("products")
-        .upsert(rows, { onConflict: "store_id,external_product_id" });
+      // Insere em batches pra evitar timeout
+      const batchSize = 500;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const slice = rows.slice(i, i + batchSize);
+        const { error } = await admin
+          .from("products")
+          .upsert(slice, { onConflict: "store_id,external_product_id" });
+        if (error) {
+          return NextResponse.json(
+            { error: error.message, synced: i },
+            { status: 500 }
+          );
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, count: rows.length });

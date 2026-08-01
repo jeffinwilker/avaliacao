@@ -9,6 +9,7 @@ import clsx from "clsx";
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: "📊" },
   { href: "/reviews", label: "Avaliações", icon: "⭐" },
+  { href: "/kits", label: "Kits", icon: "🎁" },
   { href: "/products", label: "Produtos", icon: "🛍️" },
   { href: "/import", label: "Importar", icon: "📥" },
   { href: "/preview", label: "Preview do widget", icon: "👁️" },
