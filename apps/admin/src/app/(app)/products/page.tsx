@@ -2,6 +2,10 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const PAGE_SIZE = 50;
+const BRL = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
 
 interface SearchParams {
   page?: string;
@@ -23,7 +27,10 @@ export default async function ProductsPage({
 
   let query = admin
     .from("products")
-    .select("id, name, external_product_id, image_url", { count: "exact" })
+    .select(
+      "id, name, external_product_id, image_url, price, promotional_price, stock",
+      { count: "exact" }
+    )
     .order("name")
     .range(from, to);
 
@@ -78,25 +85,61 @@ export default async function ProductsPage({
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         {products && products.length > 0 ? (
           <ul className="divide-y divide-gray-100">
-            {products.map((p) => (
-              <li key={p.id} className="px-5 py-3 flex items-center gap-3">
-                {p.image_url ? (
-                  <img
-                    src={p.image_url}
-                    alt=""
-                    className="w-12 h-12 rounded object-cover"
-                  />
-                ) : (
-                  <div className="w-12 h-12 rounded bg-gray-100" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{p.name}</div>
-                  <div className="text-xs text-gray-500">
-                    ID Nuvemshop: {p.external_product_id}
+            {products.map((p) => {
+              const price = p.price != null ? Number(p.price) : null;
+              const promo =
+                p.promotional_price != null ? Number(p.promotional_price) : null;
+              return (
+                <li key={p.id} className="px-5 py-3 flex items-center gap-3">
+                  {p.image_url ? (
+                    <img
+                      src={p.image_url}
+                      alt=""
+                      className="w-12 h-12 rounded object-cover"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded bg-gray-100" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{p.name}</div>
+                    <div className="text-xs text-gray-500">
+                      ID Nuvemshop: {p.external_product_id}
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
+                  <div className="text-right whitespace-nowrap">
+                    {promo && price ? (
+                      <>
+                        <div className="text-xs text-gray-400 line-through">
+                          {BRL.format(price)}
+                        </div>
+                        <div className="font-semibold text-green-700">
+                          {BRL.format(promo)}
+                        </div>
+                      </>
+                    ) : price != null ? (
+                      <div className="font-semibold">{BRL.format(price)}</div>
+                    ) : (
+                      <div className="text-xs text-gray-400">sem preço</div>
+                    )}
+                  </div>
+                  <div className="text-right w-20">
+                    {p.stock != null ? (
+                      <span
+                        className={
+                          p.stock > 0
+                            ? "text-xs text-gray-700"
+                            : "text-xs text-red-700 font-medium"
+                        }
+                      >
+                        {p.stock > 0 ? `${p.stock} em est.` : "sem est."}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <div className="px-5 py-12 text-center text-gray-500 text-sm">
