@@ -27,6 +27,30 @@ interface SubmitInput {
 export const ADMIN_URL = import.meta.env.VITE_ADMIN_URL ?? "";
 
 /**
+ * Batch dos kits que contêm cada produto (usado nas páginas de produto).
+ * Retorna Map external_product_id → array de cards de kit.
+ */
+export async function fetchKitsBatch(
+  apiKey: string,
+  externalProductIds: string[]
+): Promise<Record<string, import("@avaliacoes/shared").WidgetKitCard[]>> {
+  if (externalProductIds.length === 0) return {};
+  try {
+    const ids = externalProductIds.map(encodeURIComponent).join(",");
+    const url = `${ADMIN_URL}/api/widget/kits?apiKey=${encodeURIComponent(apiKey)}&productIds=${ids}`;
+    const res = await fetch(url);
+    if (!res.ok) return {};
+    const json = await res.json();
+    return (json.kits ?? {}) as Record<
+      string,
+      import("@avaliacoes/shared").WidgetKitCard[]
+    >;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Batch stats para múltiplos produtos (usado em vitrines/categorias).
  * Retorna um Map external_product_id → stats.
  */

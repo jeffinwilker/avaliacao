@@ -2,7 +2,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Widget } from "./Widget";
 import { WidgetSummary } from "./WidgetSummary";
-import { fetchStatsBatch } from "./lib/api";
+import { WidgetKit } from "./WidgetKit";
+import { fetchStatsBatch, fetchKitsBatch } from "./lib/api";
 import css from "./styles.css?inline";
 
 // ----------------------------------------------------------------------------
@@ -83,6 +84,47 @@ function mountAll() {
   // Faz batch fetch de TODOS os stats de uma vez pra evitar N requests
   // em páginas de vitrine/categoria.
   mountSummaries(storeKey);
+
+  // Cards de kit: [data-avaliacoes-kit]
+  mountKits(storeKey);
+}
+
+async function mountKits(storeKey: string) {
+  const containers = document.querySelectorAll<HTMLElement>(
+    "[data-avaliacoes-kit]"
+  );
+  if (containers.length === 0) return;
+
+  const toMount: { el: HTMLElement; productId: string }[] = [];
+  const idSet = new Set<string>();
+  containers.forEach((el) => {
+    if (el.dataset.avMounted === "1") return;
+    const pid =
+      el.dataset.productId ?? el.getAttribute("data-product-id") ?? "";
+    if (!pid) {
+      console.warn("[avaliacoes-kit] container sem data-product-id", el);
+      return;
+    }
+    toMount.push({ el, productId: pid });
+    idSet.add(pid);
+  });
+  if (toMount.length === 0) return;
+
+  const kitsMap = await fetchKitsBatch(storeKey, Array.from(idSet));
+
+  for (const { el, productId } of toMount) {
+    el.dataset.avMounted = "1";
+    const kits = kitsMap[productId] ?? [];
+    if (kits.length === 0) continue; // sem kit → não renderiza nada
+    const brandColor = el.dataset.brandColor;
+    const title = el.dataset.title;
+
+    ReactDOM.createRoot(el).render(
+      <React.StrictMode>
+        <WidgetKit kits={kits} brandColor={brandColor} title={title} />
+      </React.StrictMode>
+    );
+  }
 }
 
 async function mountSummaries(storeKey: string) {
