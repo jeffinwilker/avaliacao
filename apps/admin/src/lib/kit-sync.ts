@@ -7,6 +7,7 @@ import {
   getProduct,
   deleteProduct,
   findOrCreateCategory,
+  replaceProductImages,
 } from "./nuvemshop";
 
 // ----------------------------------------------------------------------------
@@ -26,7 +27,8 @@ const KIT_CATEGORY_NAME = "Kits";
 
 export async function syncKitToNuvemshop(
   admin: SupabaseClient,
-  kitId: string
+  kitId: string,
+  opts: { syncImages?: boolean } = {}
 ): Promise<SyncResult> {
   const { data: store } = await admin
     .from("stores")
@@ -88,12 +90,11 @@ export async function syncKitToNuvemshop(
     let variantId = kit.nuvemshop_variant_id as string | null;
 
     if (productId) {
-      // atualiza produto existente
+      // atualiza produto existente (imagens NÃO vão no PUT — sub-recurso à parte)
       await updateProduct(storeId, token, productId, {
         name: kit.name,
         description: descriptionHtml,
         published: kit.active,
-        images,
         categoryIds: [category.id],
       });
       // atualiza preço/estoque na variante
@@ -103,6 +104,14 @@ export async function syncKitToNuvemshop(
           promotional_price: promo,
           ...(stock != null ? { stock } : {}),
         });
+      }
+      // re-sincroniza galeria só quando pedido (imagens mudaram / re-sync manual)
+      if (opts.syncImages) {
+        try {
+          await replaceProductImages(storeId, token, productId, images);
+        } catch {
+          // imagens são best-effort; não falha a sincronização de preço
+        }
       }
     } else {
       // cria novo produto-kit

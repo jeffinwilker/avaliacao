@@ -146,19 +146,48 @@ export async function updateProduct(
     name?: string;
     description?: string;
     published?: boolean;
-    images?: string[];
     categoryIds?: number[];
   }
 ): Promise<NuvemshopProduct> {
+  // Atenção: o PUT /products NÃO aceita o campo `images` (retorna 422).
+  // Imagens são gerenciadas pelo sub-recurso /products/{id}/images.
   const body: Record<string, unknown> = {};
   if (payload.name) body.name = { pt: payload.name };
   if (payload.description !== undefined) body.description = { pt: payload.description };
   if (payload.published !== undefined) body.published = payload.published;
-  if (payload.images !== undefined) {
-    body.images = payload.images.map((src) => ({ src }));
-  }
   if (payload.categoryIds) body.categories = payload.categoryIds;
   return request<NuvemshopProduct>("PUT", storeId, token, `/products/${productId}`, { body });
+}
+
+/**
+ * Substitui toda a galeria de um produto (apaga as existentes e adiciona as novas).
+ * Usado ao atualizar as imagens de um kit já criado.
+ */
+export async function replaceProductImages(
+  storeId: string,
+  token: string,
+  productId: string | number,
+  images: string[]
+): Promise<void> {
+  const existing = await request<Array<{ id: number }>>(
+    "GET",
+    storeId,
+    token,
+    `/products/${productId}/images`,
+    { params: { fields: "id" } }
+  );
+  for (const img of existing) {
+    try {
+      await request("DELETE", storeId, token, `/products/${productId}/images/${img.id}`);
+    } catch {
+      // segue mesmo se uma exclusão falhar
+    }
+  }
+  for (const src of images) {
+    await request("POST", storeId, token, `/products/${productId}/images`, {
+      body: { src },
+    });
+  }
 }
 
 /** Busca um produto (usado para pegar canonical_url + variant id após criar). */

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SyncButton } from "./SyncButton";
+import { DuplicateButton } from "./DuplicateButton";
 
 const BRL = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -138,13 +139,16 @@ export default async function KitsPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <Link
-                        href={`/kits/${k.id}`}
-                        className="text-brand-900 font-medium hover:underline"
-                      >
-                        Editar →
-                      </Link>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <div className="flex items-center gap-3 justify-end text-sm">
+                        <DuplicateButton kitId={k.id} />
+                        <Link
+                          href={`/kits/${k.id}`}
+                          className="text-brand-900 font-medium hover:underline"
+                        >
+                          Editar →
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );

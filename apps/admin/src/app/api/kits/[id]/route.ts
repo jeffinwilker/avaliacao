@@ -47,13 +47,24 @@ export async function PUT(
   const body = (await req.json()) as UpdateKitPayload;
   const admin = createAdminClient();
 
+  // Guarda as imagens antigas pra saber se a galeria mudou (evita re-upload
+  // desnecessário na Nuvemshop a cada edição de preço).
+  const { data: before } = await admin
+    .from("kits")
+    .select("images")
+    .eq("id", id)
+    .maybeSingle();
+  const oldImages: string[] = Array.isArray(before?.images) ? before.images : [];
+
   const update: Record<string, unknown> = {};
   if (body.name !== undefined) update.name = body.name;
   if (body.description !== undefined) update.description = body.description;
+  let imagesChanged = false;
   if (body.images !== undefined) {
     const imgs = Array.isArray(body.images) ? body.images.filter(Boolean) : [];
     update.images = imgs;
     update.image_url = imgs[0] ?? null;
+    imagesChanged = JSON.stringify(imgs) !== JSON.stringify(oldImages);
   }
   if (body.discountType !== undefined) update.discount_type = body.discountType;
   if (body.discountValue !== undefined) update.discount_value = body.discountValue;
@@ -118,8 +129,8 @@ export async function PUT(
     }
   }
 
-  // Atualiza o produto-kit na Nuvemshop
-  const sync = await syncKitToNuvemshop(admin, id);
+  // Atualiza o produto-kit na Nuvemshop (só re-envia imagens se a galeria mudou)
+  const sync = await syncKitToNuvemshop(admin, id, { syncImages: imagesChanged });
 
   return NextResponse.json({ ok: true, syncError: sync.ok ? null : sync.error });
 }

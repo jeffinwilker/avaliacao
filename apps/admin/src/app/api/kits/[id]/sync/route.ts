@@ -14,7 +14,8 @@ export async function POST(
 
   const { id } = await params;
   const admin = createAdminClient();
-  const result = await syncKitToNuvemshop(admin, id);
+  // Re-sync manual força a atualização da galeria também
+  const result = await syncKitToNuvemshop(admin, id, { syncImages: true });
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 500 });
