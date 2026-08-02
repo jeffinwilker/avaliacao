@@ -9,6 +9,7 @@ import {
   type CreateKitPayload,
 } from "@avaliacoes/shared";
 import clsx from "clsx";
+import { RichTextEditor } from "@/components/RichTextEditor";
 
 const BRL = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -297,15 +298,19 @@ function DescriptionField({
       const json = await res.json();
       const parts: string[] = [];
       for (const p of json.products ?? []) {
-        const text = stripHtml(p.description ?? "").trim();
-        if (text) parts.push(`${p.name}\n${text}`);
+        const desc = (p.description ?? "").trim();
+        if (!desc) continue;
+        const htmlDesc = isHtml(desc)
+          ? desc
+          : `<p>${escapeHtml(desc).replace(/\n/g, "<br>")}</p>`;
+        parts.push(`<p><strong>${escapeHtml(p.name)}</strong></p>${htmlDesc}`);
       }
       if (parts.length === 0) {
         alert("Os produtos selecionados não têm descrição sincronizada.");
         return;
       }
-      const merged = parts.join("\n\n");
-      onChange(value.trim() ? `${value.trim()}\n\n${merged}` : merged);
+      const merged = parts.join("");
+      onChange(value.trim() ? `${value}${merged}` : merged);
     } finally {
       setLoading(false);
     }
@@ -313,11 +318,9 @@ function DescriptionField({
 
   return (
     <Field label="Descrição do kit">
-      <textarea
-        className="input min-h-[120px]"
+      <RichTextEditor
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        maxLength={5000}
+        onChange={onChange}
         placeholder="Aparece na página do kit na loja."
       />
       <button
@@ -681,11 +684,15 @@ function PricePreview({
 
 // ==================== helpers + micro components ====================
 
-function stripHtml(html: string): string {
-  if (typeof document === "undefined") return html;
-  const tmp = document.createElement("div");
-  tmp.innerHTML = html;
-  return (tmp.textContent || tmp.innerText || "").replace(/\n{3,}/g, "\n\n");
+function isHtml(s: string): boolean {
+  return /<[a-z][\s\S]*>/i.test(s);
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function dedupe(arr: string[]): string[] {

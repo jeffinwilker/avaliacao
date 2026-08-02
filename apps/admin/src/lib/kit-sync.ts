@@ -193,8 +193,11 @@ async function setError(admin: SupabaseClient, kitId: string, error: string) {
 }
 
 function descriptionToHtml(text: string): string {
-  const t = text.trim();
+  const t = (text ?? "").trim();
   if (!t) return "";
+  // Já é HTML (vindo do editor rich-text)? envia como está.
+  if (/<[a-z][\s\S]*>/i.test(t)) return t;
+  // Texto puro (kits antigos) — converte quebras em parágrafos.
   return t
     .split(/\n{2,}/)
     .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
