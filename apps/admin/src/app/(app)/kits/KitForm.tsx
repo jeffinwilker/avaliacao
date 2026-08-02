@@ -6,6 +6,7 @@ import {
   computeKitPrices,
   discountPercent,
   type KitDiscountType,
+  type KitDimensionRule,
   type CreateKitPayload,
 } from "@avaliacoes/shared";
 import clsx from "clsx";
@@ -42,6 +43,11 @@ interface Props {
     images: string[];
     discountType: KitDiscountType;
     discountValue: number;
+    dimensionRule: KitDimensionRule;
+    weight: number | null;
+    depth: number | null;
+    width: number | null;
+    height: number | null;
     active: boolean;
     items: SelectedItem[];
   };
@@ -60,6 +66,13 @@ export function KitForm({ mode, kitId, initial }: Props) {
   const [discountValue, setDiscountValue] = useState<number>(
     initial?.discountValue ?? 10
   );
+  const [dimensionRule, setDimensionRule] = useState<KitDimensionRule>(
+    initial?.dimensionRule ?? "auto"
+  );
+  const [weight, setWeight] = useState<number>(initial?.weight ?? 0);
+  const [depth, setDepth] = useState<number>(initial?.depth ?? 0);
+  const [width, setWidth] = useState<number>(initial?.width ?? 0);
+  const [height, setHeight] = useState<number>(initial?.height ?? 0);
   const [active, setActive] = useState(initial?.active ?? true);
 
   const [saving, setSaving] = useState(false);
@@ -93,6 +106,11 @@ export function KitForm({ mode, kitId, initial }: Props) {
       images,
       discountType,
       discountValue: Number(discountValue) || 0,
+      dimensionRule,
+      weight: dimensionRule === "custom" ? Number(weight) || 0 : null,
+      depth: dimensionRule === "custom" ? Number(depth) || 0 : null,
+      width: dimensionRule === "custom" ? Number(width) || 0 : null,
+      height: dimensionRule === "custom" ? Number(height) || 0 : null,
       active,
       items: items.map((i, idx) => ({
         productId: i.productId,
@@ -213,7 +231,76 @@ export function KitForm({ mode, kitId, initial }: Props) {
         </Field>
       </Section>
 
-      {/* 5. Preview */}
+      {/* 5. Peso e dimensões (frete) */}
+      <Section title="Peso e dimensões (frete)">
+        <Field label="Regra">
+          <select
+            className="input"
+            value={dimensionRule}
+            onChange={(e) => setDimensionRule(e.target.value as KitDimensionRule)}
+          >
+            <option value="auto">
+              Automático — somar peso dos produtos e usar a maior dimensão
+            </option>
+            <option value="custom">
+              Cadastrar peso e dimensões específicas para o kit
+            </option>
+          </select>
+        </Field>
+
+        {dimensionRule === "auto" ? (
+          <p className="text-sm text-gray-500">
+            O peso será a soma dos itens e cada dimensão (comprimento, largura,
+            altura) será a maior entre os produtos. Calculado automaticamente ao
+            salvar.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Field label="Peso (kg)">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step={0.001}
+                value={weight}
+                onChange={(e) => setWeight(Number(e.target.value) || 0)}
+              />
+            </Field>
+            <Field label="Comprimento (cm)">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step={0.1}
+                value={depth}
+                onChange={(e) => setDepth(Number(e.target.value) || 0)}
+              />
+            </Field>
+            <Field label="Largura (cm)">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step={0.1}
+                value={width}
+                onChange={(e) => setWidth(Number(e.target.value) || 0)}
+              />
+            </Field>
+            <Field label="Altura (cm)">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step={0.1}
+                value={height}
+                onChange={(e) => setHeight(Number(e.target.value) || 0)}
+              />
+            </Field>
+          </div>
+        )}
+      </Section>
+
+      {/* 6. Preview */}
       <Section title="Preview de preço">
         <PricePreview original={original} final={final} pct={pct} />
       </Section>

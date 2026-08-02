@@ -66,6 +66,11 @@ export async function PUT(
     update.image_url = imgs[0] ?? null;
     imagesChanged = JSON.stringify(imgs) !== JSON.stringify(oldImages);
   }
+  if (body.dimensionRule !== undefined) update.dimension_rule = body.dimensionRule;
+  if (body.weight !== undefined) update.weight = body.weight;
+  if (body.depth !== undefined) update.depth = body.depth;
+  if (body.width !== undefined) update.width = body.width;
+  if (body.height !== undefined) update.height = body.height;
   if (body.discountType !== undefined) update.discount_type = body.discountType;
   if (body.discountValue !== undefined) update.discount_value = body.discountValue;
   if (body.active !== undefined) update.active = body.active;

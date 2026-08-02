@@ -55,6 +55,14 @@ export interface Product {
   description?: string | null;
   /** Galeria de imagens (URLs) */
   images?: string[];
+  /** Peso em kg */
+  weight?: number | null;
+  /** Comprimento em cm */
+  depth?: number | null;
+  /** Largura em cm */
+  width?: number | null;
+  /** Altura em cm */
+  height?: number | null;
 }
 
 export interface Order {

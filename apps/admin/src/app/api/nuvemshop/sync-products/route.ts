@@ -31,6 +31,8 @@ export async function POST() {
     const rows = products.map((p) => {
       const variant = mainVariant(p);
       const images = (p.images ?? []).map((img) => img.src).filter(Boolean);
+      const numOrNull = (v: string | null | undefined) =>
+        v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
       return {
         store_id: store.id,
         external_product_id: String(p.id),
@@ -48,6 +50,10 @@ export async function POST() {
             ? Number(variant.stock)
             : null,
         variant_id: variant?.id ? String(variant.id) : null,
+        weight: numOrNull(variant?.weight),
+        depth: numOrNull(variant?.depth),
+        width: numOrNull(variant?.width),
+        height: numOrNull(variant?.height),
       };
     });
 

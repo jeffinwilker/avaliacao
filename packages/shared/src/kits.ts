@@ -5,6 +5,16 @@
 export const KIT_DISCOUNT_TYPES = ["percent", "fixed", "total"] as const;
 export type KitDiscountType = (typeof KIT_DISCOUNT_TYPES)[number];
 
+export const KIT_DIMENSION_RULES = ["auto", "custom"] as const;
+export type KitDimensionRule = (typeof KIT_DIMENSION_RULES)[number];
+
+export interface KitDimensions {
+  weight: number; // kg
+  depth: number; // cm
+  width: number; // cm
+  height: number; // cm
+}
+
 export interface Kit {
   id: string;
   storeId: string;
@@ -13,6 +23,11 @@ export interface Kit {
   imageUrl: string | null;
   /** Galeria de imagens (a primeira é a principal/imageUrl) */
   images: string[];
+  dimensionRule: KitDimensionRule;
+  weight: number | null;
+  depth: number | null;
+  width: number | null;
+  height: number | null;
   discountType: KitDiscountType;
   discountValue: number;
   nuvemshopProductId: string | null;
@@ -56,6 +71,11 @@ export interface CreateKitPayload {
   description?: string;
   /** Galeria de imagens. image_url será a primeira. */
   images?: string[];
+  dimensionRule?: KitDimensionRule;
+  weight?: number | null;
+  depth?: number | null;
+  width?: number | null;
+  height?: number | null;
   discountType: KitDiscountType;
   discountValue: number;
   active?: boolean;
@@ -130,6 +150,47 @@ function round2(n: number): number {
 export function discountPercent(original: number, final: number): number {
   if (!original || original <= 0) return 0;
   return Math.round(((original - final) / original) * 100);
+}
+
+/**
+ * Peso/dimensões do kit.
+ * - auto: peso = soma dos itens; cada dimensão = a MAIOR entre os itens
+ * - custom: usa os valores informados
+ */
+export function computeKitDimensions(
+  items: Array<{
+    weight: number | null;
+    depth: number | null;
+    width: number | null;
+    height: number | null;
+    quantity: number;
+  }>,
+  rule: KitDimensionRule,
+  custom: Partial<KitDimensions>
+): KitDimensions {
+  if (rule === "custom") {
+    return {
+      weight: safeNum(custom.weight),
+      depth: safeNum(custom.depth),
+      width: safeNum(custom.width),
+      height: safeNum(custom.height),
+    };
+  }
+  let weight = 0;
+  let depth = 0;
+  let width = 0;
+  let height = 0;
+  for (const it of items) {
+    weight += (it.weight ?? 0) * it.quantity;
+    depth = Math.max(depth, it.depth ?? 0);
+    width = Math.max(width, it.width ?? 0);
+    height = Math.max(height, it.height ?? 0);
+  }
+  return { weight: Math.round(weight * 1000) / 1000, depth, width, height };
+}
+
+function safeNum(v: number | null | undefined): number {
+  return v == null || !Number.isFinite(v) ? 0 : v;
 }
 
 /**

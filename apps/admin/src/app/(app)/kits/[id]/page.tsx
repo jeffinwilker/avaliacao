@@ -54,6 +54,11 @@ export default async function EditKitPage({
     images: galleryImages,
     discountType: kit.discount_type as "percent" | "fixed" | "total",
     discountValue: Number(kit.discount_value ?? 0),
+    dimensionRule: (kit.dimension_rule as "auto" | "custom") ?? "auto",
+    weight: kit.weight != null ? Number(kit.weight) : null,
+    depth: kit.depth != null ? Number(kit.depth) : null,
+    width: kit.width != null ? Number(kit.width) : null,
+    height: kit.height != null ? Number(kit.height) : null,
     active: kit.active ?? true,
     items,
   };

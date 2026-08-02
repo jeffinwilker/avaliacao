@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeKitStock } from "@avaliacoes/shared";
+import { computeKitStock, computeKitDimensions } from "@avaliacoes/shared";
 import {
   createProduct,
   updateProduct,
@@ -45,10 +45,11 @@ export async function syncKitToNuvemshop(
     .from("kits")
     .select(
       `id, name, description, images, active, original_price, final_price,
+       dimension_rule, weight, depth, width, height,
        nuvemshop_product_id, nuvemshop_variant_id,
        items:kit_items (
          quantity,
-         product:products (stock)
+         product:products (stock, weight, depth, width, height)
        )`
     )
     .eq("id", kitId)
@@ -66,18 +67,41 @@ export async function syncKitToNuvemshop(
     const promo = final > 0 && final < original ? final : null;
 
     // Supabase retorna a relação `product` como objeto ou array — normalizamos
+    type ProdDims = {
+      stock: number | null;
+      weight: number | null;
+      depth: number | null;
+      width: number | null;
+      height: number | null;
+    };
     const items = (kit.items ?? []) as unknown as Array<{
       quantity: number;
-      product?:
-        | { stock: number | null }
-        | { stock: number | null }[]
-        | null;
+      product?: ProdDims | ProdDims[] | null;
     }>;
-    const stock = computeKitStock(
-      items.map((i) => {
-        const prod = Array.isArray(i.product) ? i.product[0] : i.product;
-        return { stock: prod?.stock ?? null, quantity: i.quantity };
-      })
+    const normItems = items.map((i) => {
+      const prod = (Array.isArray(i.product) ? i.product[0] : i.product) as
+        | ProdDims
+        | undefined;
+      return {
+        quantity: i.quantity,
+        stock: prod?.stock ?? null,
+        weight: prod?.weight ?? null,
+        depth: prod?.depth ?? null,
+        width: prod?.width ?? null,
+        height: prod?.height ?? null,
+      };
+    });
+    const stock = computeKitStock(normItems);
+
+    const dims = computeKitDimensions(
+      normItems,
+      (kit.dimension_rule as "auto" | "custom") ?? "auto",
+      {
+        weight: kit.weight != null ? Number(kit.weight) : 0,
+        depth: kit.depth != null ? Number(kit.depth) : 0,
+        width: kit.width != null ? Number(kit.width) : 0,
+        height: kit.height != null ? Number(kit.height) : 0,
+      }
     );
 
     const images = (Array.isArray(kit.images) ? kit.images : []) as string[];
@@ -97,12 +121,16 @@ export async function syncKitToNuvemshop(
         published: kit.active,
         categoryIds: [category.id],
       });
-      // atualiza preço/estoque na variante
+      // atualiza preço/estoque/dimensões na variante
       if (variantId) {
         await updateVariant(storeId, token, productId, variantId, {
           price,
           promotional_price: promo,
           ...(stock != null ? { stock } : {}),
+          weight: dims.weight,
+          depth: dims.depth,
+          width: dims.width,
+          height: dims.height,
         });
       }
       // re-sincroniza galeria só quando pedido (imagens mudaram / re-sync manual)
@@ -124,6 +152,10 @@ export async function syncKitToNuvemshop(
         images,
         categoryIds: [category.id],
         published: kit.active,
+        weight: dims.weight,
+        depth: dims.depth,
+        width: dims.width,
+        height: dims.height,
       });
       productId = String(created.id);
       variantId = created.variants?.[0]?.id ? String(created.variants[0].id) : null;

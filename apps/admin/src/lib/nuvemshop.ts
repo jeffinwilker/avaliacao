@@ -13,6 +13,10 @@ export interface NuvemshopVariant {
   stock?: number | null;
   stock_management?: boolean;
   sku?: string | null;
+  weight?: string | null;
+  depth?: string | null;
+  width?: string | null;
+  height?: string | null;
 }
 
 export interface NuvemshopProduct {
@@ -113,19 +117,27 @@ export async function createProduct(
     categoryIds?: number[];
     published?: boolean;
     handle?: string;
+    weight?: number;
+    depth?: number;
+    width?: number;
+    height?: number;
   }
 ): Promise<NuvemshopProduct> {
+  const variant: Record<string, unknown> = {
+    price: payload.price.toFixed(2),
+    promotional_price: payload.promotional_price?.toFixed(2),
+    stock_management: payload.stock !== undefined,
+    stock: payload.stock,
+  };
+  if (payload.weight != null) variant.weight = payload.weight.toFixed(3);
+  if (payload.depth != null) variant.depth = payload.depth.toFixed(2);
+  if (payload.width != null) variant.width = payload.width.toFixed(2);
+  if (payload.height != null) variant.height = payload.height.toFixed(2);
+
   const body: Record<string, unknown> = {
     name: { pt: payload.name },
     published: payload.published ?? true,
-    variants: [
-      {
-        price: payload.price.toFixed(2),
-        promotional_price: payload.promotional_price?.toFixed(2),
-        stock_management: payload.stock !== undefined,
-        stock: payload.stock,
-      },
-    ],
+    variants: [variant],
   };
   if (payload.description) body.description = { pt: payload.description };
   if (payload.handle) body.handle = { pt: payload.handle };
@@ -206,7 +218,15 @@ export async function updateVariant(
   token: string,
   productId: string | number,
   variantId: string | number,
-  payload: { price?: number; promotional_price?: number | null; stock?: number }
+  payload: {
+    price?: number;
+    promotional_price?: number | null;
+    stock?: number;
+    weight?: number;
+    depth?: number;
+    width?: number;
+    height?: number;
+  }
 ): Promise<NuvemshopVariant> {
   const body: Record<string, unknown> = {};
   if (payload.price !== undefined) body.price = payload.price.toFixed(2);
@@ -219,6 +239,10 @@ export async function updateVariant(
     body.stock_management = true;
     body.stock = payload.stock;
   }
+  if (payload.weight !== undefined) body.weight = payload.weight.toFixed(3);
+  if (payload.depth !== undefined) body.depth = payload.depth.toFixed(2);
+  if (payload.width !== undefined) body.width = payload.width.toFixed(2);
+  if (payload.height !== undefined) body.height = payload.height.toFixed(2);
   return request<NuvemshopVariant>(
     "PUT",
     storeId,
