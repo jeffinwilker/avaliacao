@@ -43,3 +43,7 @@ supabase/.branches/
 
 # claude code (local per-machine)
 .claude/settings.local.json
+
+# local project handoff/instructions
+AGENTS.md
+CLAUDE.md
