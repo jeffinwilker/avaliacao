@@ -64,6 +64,9 @@ export interface NuvemshopAbandonedCheckout {
   contact_phone?: string | null;
   shipping_name?: string | null;
   shipping_phone?: string | null;
+  subtotal?: string | null;
+  total?: string | null;
+  currency?: string | null;
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
@@ -72,6 +75,8 @@ export interface NuvemshopAbandonedCheckout {
     variant_id?: number;
     quantity: number;
     name: string;
+    price?: string | null;
+    image?: { src?: string | null } | null;
   }>;
 }
 

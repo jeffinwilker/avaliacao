@@ -19,7 +19,7 @@ export function RunAutomationsButton() {
 
     setState("done");
     setMessage(
-      `${json.sync?.queued ?? 0} novo(s) carrinho(s) agendado(s) e ${
+      `${json.sync?.found ?? 0} carrinho(s) sincronizado(s) e ${
         json.messages?.sent ?? 0
       } mensagem(ns) enviada(s).`
     );

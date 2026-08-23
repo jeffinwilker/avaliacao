@@ -15,6 +15,7 @@ interface Settings {
   abandoned_cart_enabled: boolean;
   abandoned_cart_delay_hours: number;
   abandoned_cart_whatsapp_template: string | null;
+  abandoned_cart_sequence: unknown;
   post_purchase_enabled: boolean;
   post_purchase_delay_hours: number;
   post_purchase_whatsapp_template: string | null;
@@ -179,35 +180,13 @@ export function SettingsForm({
           onChange={(value) => setS({ ...s, abandoned_cart_enabled: value })}
         />
         {s.abandoned_cart_enabled && (
-          <>
-            <Field
-              label="Horas após o abandono"
-              hint="O mínimo é 6 horas, conforme a disponibilidade da API da Nuvemshop."
-            >
-              <input
-                type="number"
-                min={6}
-                max={168}
-                value={s.abandoned_cart_delay_hours}
-                onChange={(e) =>
-                  setS({ ...s, abandoned_cart_delay_hours: Number(e.target.value) })
-                }
-                className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              />
-            </Field>
-            <Field
-              label="Mensagem de recuperação"
-              hint="Variáveis: {{nome}}, {{produtos}}, {{link}}, {{loja}}"
-            >
-              <textarea
-                value={s.abandoned_cart_whatsapp_template ?? ""}
-                onChange={(e) =>
-                  setS({ ...s, abandoned_cart_whatsapp_template: e.target.value })
-                }
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[150px] font-mono"
-              />
-            </Field>
-          </>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+            Os horários e textos de cada tentativa agora ficam na tela de{" "}
+            <a href="/automations" className="font-semibold underline">
+              Automações
+            </a>
+            , junto com a lista dos carrinhos.
+          </div>
         )}
       </Section>
 

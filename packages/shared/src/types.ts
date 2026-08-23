@@ -33,6 +33,7 @@ export interface StoreSettings {
   abandonedCartEnabled: boolean;
   abandonedCartDelayHours: number;
   abandonedCartWhatsappTemplate: string | null;
+  abandonedCartSequence: AbandonedCartMessageStep[];
   postPurchaseEnabled: boolean;
   postPurchaseDelayHours: number;
   postPurchaseWhatsappTemplate: string | null;
@@ -40,6 +41,13 @@ export interface StoreSettings {
   allowMedia: boolean;
   maxMediaPerReview: number;
   updatedAt: string;
+}
+
+export interface AbandonedCartMessageStep {
+  id: string;
+  delayHours: number;
+  messageTemplate: string;
+  enabled: boolean;
 }
 
 export interface Product {

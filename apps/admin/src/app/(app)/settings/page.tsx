@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SettingsForm } from "./SettingsForm";
 import {
+  DEFAULT_ABANDONED_CART_SEQUENCE,
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
   DEFAULT_EMAIL_TEMPLATE,
   DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
@@ -47,6 +48,7 @@ export default async function SettingsPage() {
     abandoned_cart_enabled: false,
     abandoned_cart_delay_hours: 8,
     abandoned_cart_whatsapp_template: DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
+    abandoned_cart_sequence: DEFAULT_ABANDONED_CART_SEQUENCE,
     post_purchase_enabled: false,
     post_purchase_delay_hours: 24,
     post_purchase_whatsapp_template: DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,

@@ -75,7 +75,7 @@ Confirme:
 ```bash
 pm2 status              # deve aparecer avaliacoes-admin online
 pm2 logs avaliacoes-admin
-curl http://127.0.0.1:3000  # deve devolver HTML do painel
+curl http://127.0.0.1:3002  # deve devolver HTML do painel
 ```
 
 ## Passo 5 — Nginx reverse proxy

@@ -1,6 +1,8 @@
 import {
+  DEFAULT_ABANDONED_CART_SEQUENCE,
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
   DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
+  type AbandonedCartMessageStep,
 } from "@avaliacoes/shared";
 import { fetchAllAbandonedCheckouts } from "@/lib/nuvemshop";
 import { sendWhatsApp } from "@/lib/providers/whatsapp";
@@ -32,6 +34,22 @@ interface AutomationJob {
   products_summary: string;
   link: string | null;
   attempts: number;
+  routine_step_key: string;
+  sequence_step: number;
+}
+
+export interface StoredAbandonedCartStep {
+  id: string;
+  delay_hours: number;
+  message_template: string;
+  enabled: boolean;
+}
+
+interface ExistingAutomationMessage {
+  id: string;
+  external_reference: string;
+  routine_step_key: string;
+  status: string;
 }
 
 export interface AbandonedCartSyncResult {
@@ -62,37 +80,116 @@ export async function syncAbandonedCarts(
     errors: [],
   };
 
-  const { data: configs, error: configError } = await admin
-    .from("store_settings")
-    .select("store_id, abandoned_cart_delay_hours")
-    .eq("abandoned_cart_enabled", true);
+  const [{ data: stores, error: storesError }, { data: configs, error: configError }] =
+    await Promise.all([
+      admin
+        .from("stores")
+        .select("id, external_store_id, access_token")
+        .eq("platform", "nuvemshop"),
+      admin
+        .from("store_settings")
+        .select(
+          `store_id, abandoned_cart_enabled, abandoned_cart_delay_hours,
+           abandoned_cart_whatsapp_template, abandoned_cart_sequence`
+        ),
+    ]);
 
+  if (storesError) throw storesError;
   if (configError) throw configError;
+  const configsByStore = new Map(
+    (configs ?? []).map((config) => [config.store_id, config])
+  );
 
-  for (const config of configs ?? []) {
-    const { data: store } = await admin
-      .from("stores")
-      .select("id, external_store_id, access_token")
-      .eq("id", config.store_id)
-      .maybeSingle();
-
-    if (!store?.access_token) {
-      result.errors.push(`Loja ${config.store_id}: conexão com a Nuvemshop ausente`);
+  for (const store of stores ?? []) {
+    if (!store.access_token) {
+      result.errors.push(`Loja ${store.id}: conexão com a Nuvemshop ausente`);
       continue;
     }
 
     result.stores++;
 
     try {
+      const config = configsByStore.get(store.id);
+      const steps = parseAbandonedCartSequence(
+        config?.abandoned_cart_sequence,
+        config?.abandoned_cart_delay_hours,
+        config?.abandoned_cart_whatsapp_template
+      );
+      const activeSteps = config?.abandoned_cart_enabled
+        ? steps.filter((step) => step.enabled)
+        : [];
       const checkouts = await fetchAllAbandonedCheckouts(
         store.external_store_id,
         store.access_token
       );
       result.found += checkouts.length;
 
-      const completedIds = checkouts
-        .filter((checkout) => Boolean(checkout.completed_at))
-        .map((checkout) => String(checkout.id));
+      const checkoutIds = checkouts.map((checkout) => String(checkout.id));
+      const [{ data: knownCarts }, { data: knownMessages }] = await Promise.all([
+        checkoutIds.length
+          ? admin
+              .from("abandoned_carts")
+              .select("external_checkout_id, status")
+              .eq("store_id", store.id)
+              .in("external_checkout_id", checkoutIds)
+          : Promise.resolve({ data: [] }),
+        admin
+          .from("automation_messages")
+          .select("id, external_reference, routine_step_key, status")
+          .eq("store_id", store.id)
+          .eq("automation_type", "abandoned_cart"),
+      ]);
+      const knownCartStatus = new Map(
+        (knownCarts ?? []).map((cart) => [cart.external_checkout_id, cart.status])
+      );
+      const knownMessageByKey = new Map(
+        ((knownMessages ?? []) as ExistingAutomationMessage[]).map((message) => [
+          `${message.external_reference}:${message.routine_step_key}`,
+          message,
+        ])
+      );
+
+      const cartRows = checkouts.map((checkout) => {
+        const externalId = String(checkout.id);
+        const previousStatus = knownCartStatus.get(externalId);
+        const status = checkout.completed_at
+          ? "completed"
+          : previousStatus === "recovered"
+          ? "recovered"
+          : "abandoned";
+        return {
+          store_id: store.id,
+          external_checkout_id: externalId,
+          source_token: checkout.token || null,
+          customer_name:
+            checkout.contact_name || checkout.shipping_name || "Cliente",
+          customer_email: checkout.contact_email || null,
+          customer_phone:
+            checkout.contact_phone || checkout.shipping_phone || null,
+          checkout_url: checkout.abandoned_checkout_url || null,
+          products: checkout.products ?? [],
+          products_summary: summarizeProducts(checkout.products ?? []),
+          subtotal: parseMoney(checkout.subtotal),
+          total: parseMoney(checkout.total),
+          currency: checkout.currency || "BRL",
+          status,
+          nuvemshop_created_at: checkout.created_at,
+          nuvemshop_updated_at: checkout.updated_at || null,
+          completed_at: checkout.completed_at || null,
+        };
+      });
+
+      for (let i = 0; i < cartRows.length; i += 200) {
+        const { error } = await admin.from("abandoned_carts").upsert(
+          cartRows.slice(i, i + 200),
+          { onConflict: "store_id,external_checkout_id" }
+        );
+        if (error) throw error;
+      }
+
+      const completedIds = cartRows
+        .filter((cart) => cart.status !== "abandoned")
+        .map((cart) => cart.external_checkout_id);
 
       for (let i = 0; i < completedIds.length; i += 200) {
         const { data: cancelled } = await admin
@@ -107,44 +204,80 @@ export async function syncAbandonedCarts(
       }
 
       const rows = checkouts
-        .filter((checkout) => !checkout.completed_at)
-        .map((checkout) => {
+        .filter(
+          (checkout) =>
+            !checkout.completed_at &&
+            knownCartStatus.get(String(checkout.id)) !== "recovered"
+        )
+        .flatMap((checkout) => {
           const phone = checkout.contact_phone || checkout.shipping_phone;
           const productsSummary = summarizeProducts(checkout.products);
-          if (!phone || !checkout.abandoned_checkout_url || !productsSummary) return null;
+          if (!phone || !checkout.abandoned_checkout_url || !productsSummary) return [];
 
           const createdAt = new Date(checkout.created_at).getTime();
           const baseTime = Number.isFinite(createdAt) ? createdAt : Date.now();
-          const delay = Math.max(6, config.abandoned_cart_delay_hours ?? 8);
+          return activeSteps.flatMap((step, index) => {
+            const messageKey = `${checkout.id}:${step.id}`;
+            const existing = knownMessageByKey.get(messageKey);
+            if (
+              existing &&
+              ["sent", "processing", "failed"].includes(existing.status)
+            ) {
+              return [];
+            }
 
-          return {
-            store_id: store.id,
-            automation_type: "abandoned_cart" as const,
-            external_reference: String(checkout.id),
-            reference_label: String(checkout.id),
-            source_token: checkout.token || null,
-            customer_name:
-              checkout.contact_name || checkout.shipping_name || "Cliente",
-            customer_phone: phone,
-            products_summary: productsSummary,
-            link: checkout.abandoned_checkout_url,
-            scheduled_for: new Date(baseTime + delay * 3600_000).toISOString(),
-          };
+            return [{
+              store_id: store.id,
+              automation_type: "abandoned_cart" as const,
+              external_reference: String(checkout.id),
+              reference_label: String(checkout.id),
+              source_token: checkout.token || null,
+              customer_name:
+                checkout.contact_name || checkout.shipping_name || "Cliente",
+              customer_phone: phone,
+              products_summary: productsSummary,
+              link: checkout.abandoned_checkout_url,
+              routine_step_key: step.id,
+              sequence_step: index + 1,
+              status: "scheduled" as const,
+              error_message: null,
+              scheduled_for: new Date(
+                baseTime + step.delay_hours * 3600_000
+              ).toISOString(),
+            }];
+          });
         })
-        .filter((row): row is NonNullable<typeof row> => Boolean(row));
+        .filter(Boolean);
 
-      result.eligible += rows.length;
+      result.eligible += new Set(rows.map((row) => row.external_reference)).size;
 
       for (let i = 0; i < rows.length; i += 200) {
         const { data: inserted, error } = await admin
           .from("automation_messages")
           .upsert(rows.slice(i, i + 200), {
-            onConflict: "store_id,automation_type,external_reference",
-            ignoreDuplicates: true,
+            onConflict:
+              "store_id,automation_type,external_reference,routine_step_key",
           })
           .select("id");
         if (error) throw error;
         result.queued += inserted?.length ?? 0;
+      }
+
+      const activeStepIds = new Set(activeSteps.map((step) => step.id));
+      const removedMessageIds = ((knownMessages ?? []) as ExistingAutomationMessage[])
+        .filter(
+          (message) =>
+            message.status === "scheduled" &&
+            !activeStepIds.has(message.routine_step_key)
+        )
+        .map((message) => message.id);
+      for (let i = 0; i < removedMessageIds.length; i += 200) {
+        const { data: cancelled } = await admin
+          .from("automation_messages")
+          .update({ status: "cancelled", error_message: "Etapa removida ou desativada" })
+          .in("id", removedMessageIds.slice(i, i + 200))
+          .select("id");
+        result.cancelled += cancelled?.length ?? 0;
       }
     } catch (error) {
       result.errors.push(
@@ -173,10 +306,13 @@ export async function queuePostPurchaseMessage(
         customer_phone: input.customerPhone,
         products_summary: input.productsSummary,
         link: input.link || null,
+        routine_step_key: "default",
+        sequence_step: 1,
         scheduled_for: input.scheduledFor,
       },
       {
-        onConflict: "store_id,automation_type,external_reference",
+        onConflict:
+          "store_id,automation_type,external_reference,routine_step_key",
         ignoreDuplicates: true,
       }
     )
@@ -215,13 +351,21 @@ export async function cancelAbandonedCartForOrder(
   sourceToken?: string | null
 ): Promise<void> {
   if (!sourceToken) return;
-  await admin
-    .from("automation_messages")
-    .update({ status: "cancelled", error_message: null })
-    .eq("store_id", storeId)
-    .eq("automation_type", "abandoned_cart")
-    .eq("source_token", sourceToken)
-    .eq("status", "scheduled");
+  await Promise.all([
+    admin
+      .from("automation_messages")
+      .update({ status: "cancelled", error_message: null })
+      .eq("store_id", storeId)
+      .eq("automation_type", "abandoned_cart")
+      .eq("source_token", sourceToken)
+      .eq("status", "scheduled"),
+    admin
+      .from("abandoned_carts")
+      .update({ status: "recovered", completed_at: new Date().toISOString() })
+      .eq("store_id", storeId)
+      .eq("source_token", sourceToken)
+      .eq("status", "abandoned"),
+  ]);
 }
 
 export async function sendScheduledAutomationMessages(
@@ -248,7 +392,8 @@ export async function sendScheduledAutomationMessages(
     admin
       .from("store_settings")
       .select(
-        `store_id, abandoned_cart_enabled, abandoned_cart_whatsapp_template,
+        `store_id, abandoned_cart_enabled, abandoned_cart_delay_hours,
+         abandoned_cart_whatsapp_template, abandoned_cart_sequence,
          post_purchase_enabled, post_purchase_whatsapp_template`
       )
       .in("store_id", storeIds),
@@ -264,9 +409,17 @@ export async function sendScheduledAutomationMessages(
     const store = storesById.get(job.store_id);
     const config = settingsByStore.get(job.store_id);
     const type = job.automation_type as AutomationType;
+    const abandonedStep =
+      type === "abandoned_cart" && config
+        ? parseAbandonedCartSequence(
+            config.abandoned_cart_sequence,
+            config.abandoned_cart_delay_hours,
+            config.abandoned_cart_whatsapp_template
+          ).find((step) => step.id === job.routine_step_key)
+        : null;
     const enabled =
       type === "abandoned_cart"
-        ? config?.abandoned_cart_enabled
+        ? config?.abandoned_cart_enabled && abandonedStep?.enabled
         : config?.post_purchase_enabled;
 
     if (!store || !config || !enabled) {
@@ -280,7 +433,8 @@ export async function sendScheduledAutomationMessages(
 
     const template =
       type === "abandoned_cart"
-        ? config.abandoned_cart_whatsapp_template ||
+        ? abandonedStep?.message_template ||
+          config.abandoned_cart_whatsapp_template ||
           DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE
         : config.post_purchase_whatsapp_template ||
           DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE;
@@ -322,6 +476,58 @@ export async function sendScheduledAutomationMessages(
   return result;
 }
 
+export function parseAbandonedCartSequence(
+  value: unknown,
+  fallbackDelay = 8,
+  fallbackTemplate = DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE
+): StoredAbandonedCartStep[] {
+  const rawSteps = Array.isArray(value) ? value : [];
+  const seen = new Set<string>();
+  const parsed = rawSteps.flatMap((raw, index) => {
+    if (!raw || typeof raw !== "object") return [];
+    const candidate = raw as Record<string, unknown>;
+    const rawId = String(candidate.id || `step-${index + 1}`);
+    const id = /^[a-zA-Z0-9_-]{1,80}$/.test(rawId)
+      ? rawId
+      : `step-${index + 1}`;
+    if (seen.has(id)) return [];
+    seen.add(id);
+
+    const delay = Number(candidate.delay_hours ?? candidate.delayHours);
+    const template = String(
+      candidate.message_template ?? candidate.messageTemplate ?? ""
+    ).trim();
+    if (!Number.isFinite(delay) || delay < 6 || delay > 720 || !template) {
+      return [];
+    }
+
+    return [{
+      id,
+      delay_hours: Math.round(delay),
+      message_template: template.slice(0, 4000),
+      enabled: candidate.enabled !== false,
+    }];
+  });
+
+  if (parsed.length) {
+    return parsed.slice(0, 5).sort((a, b) => a.delay_hours - b.delay_hours);
+  }
+
+  const fallback = DEFAULT_ABANDONED_CART_SEQUENCE[0];
+  return [{
+    id: fallback.id,
+    delay_hours: Math.max(6, Math.min(720, Math.round(fallbackDelay || 8))),
+    message_template: fallbackTemplate || fallback.messageTemplate,
+    enabled: true,
+  }];
+}
+
+export function serializeAbandonedCartSequence(
+  steps: AbandonedCartMessageStep[]
+): StoredAbandonedCartStep[] {
+  return parseAbandonedCartSequence(steps);
+}
+
 export function summarizeProducts(
   products: Array<{ name?: string | null; quantity?: number | null }>
 ): string {
@@ -344,4 +550,10 @@ function replaceTemplate(template: string, vars: Record<string, string>): string
 
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || "cliente";
+}
+
+function parseMoney(value: string | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }

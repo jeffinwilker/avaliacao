@@ -43,6 +43,7 @@ export async function PUT(req: NextRequest) {
     abandoned_cart_enabled: body.abandoned_cart_enabled,
     abandoned_cart_delay_hours: body.abandoned_cart_delay_hours,
     abandoned_cart_whatsapp_template: body.abandoned_cart_whatsapp_template,
+    abandoned_cart_sequence: body.abandoned_cart_sequence,
     post_purchase_enabled: body.post_purchase_enabled,
     post_purchase_delay_hours: body.post_purchase_delay_hours,
     post_purchase_whatsapp_template: body.post_purchase_whatsapp_template,
