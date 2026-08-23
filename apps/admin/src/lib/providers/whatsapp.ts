@@ -4,14 +4,19 @@
 interface SendWhatsAppInput {
   phone: string; // E.164: +5511999998888 (a gente normaliza)
   message: string;
+  instance?: string | null;
 }
 
-export async function sendWhatsApp({ phone, message }: SendWhatsAppInput): Promise<void> {
+export async function sendWhatsApp({
+  phone,
+  message,
+  instance,
+}: SendWhatsAppInput): Promise<void> {
   const provider = process.env.WHATSAPP_PROVIDER ?? "evolution";
   const normalized = normalizePhone(phone);
 
   if (provider === "evolution") {
-    return sendViaEvolution(normalized, message);
+    return sendViaEvolution(normalized, message, instance);
   }
   if (provider === "zapi") {
     return sendViaZapi(normalized, message);
@@ -27,10 +32,14 @@ function normalizePhone(raw: string): string {
   return s;
 }
 
-async function sendViaEvolution(phone: string, message: string): Promise<void> {
+async function sendViaEvolution(
+  phone: string,
+  message: string,
+  instanceOverride?: string | null
+): Promise<void> {
   const url = process.env.WHATSAPP_API_URL;
   const apiKey = process.env.WHATSAPP_API_KEY;
-  const instance = process.env.WHATSAPP_INSTANCE;
+  const instance = instanceOverride || process.env.WHATSAPP_INSTANCE;
   if (!url || !apiKey || !instance) {
     throw new Error("Evolution API não configurada");
   }

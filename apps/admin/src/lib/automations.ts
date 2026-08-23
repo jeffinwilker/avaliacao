@@ -394,7 +394,8 @@ export async function sendScheduledAutomationMessages(
       .select(
         `store_id, abandoned_cart_enabled, abandoned_cart_delay_hours,
          abandoned_cart_whatsapp_template, abandoned_cart_sequence,
-         post_purchase_enabled, post_purchase_whatsapp_template`
+         post_purchase_enabled, post_purchase_whatsapp_template,
+         whatsapp_instance`
       )
       .in("store_id", storeIds),
   ]);
@@ -448,7 +449,11 @@ export async function sendScheduledAutomationMessages(
     });
 
     try {
-      await sendWhatsApp({ phone: job.customer_phone, message });
+      await sendWhatsApp({
+        phone: job.customer_phone,
+        message,
+        instance: config.whatsapp_instance,
+      });
       await admin
         .from("automation_messages")
         .update({

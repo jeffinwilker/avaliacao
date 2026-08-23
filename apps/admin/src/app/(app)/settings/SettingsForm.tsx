@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { WhatsAppConnection } from "./WhatsAppConnection";
 
 interface Settings {
   store_id: string;
@@ -9,6 +10,7 @@ interface Settings {
   request_delay_days: number;
   email_enabled: boolean;
   whatsapp_enabled: boolean;
+  whatsapp_instance: string | null;
   email_subject: string | null;
   email_template: string | null;
   whatsapp_template: string | null;
@@ -27,11 +29,11 @@ interface Settings {
 export function SettingsForm({
   storeName,
   initial,
-  whatsappConfigured,
+  evolutionServerConfigured,
 }: {
   storeName: string;
   initial: Settings;
-  whatsappConfigured: boolean;
+  evolutionServerConfigured: boolean;
 }) {
   const router = useRouter();
   const [s, setS] = useState(initial);
@@ -69,16 +71,10 @@ export function SettingsForm({
       </Section>
 
       <Section title="WhatsApp">
-        {whatsappConfigured ? (
-          <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg p-3">
-            ✓ Evolution API configurada no servidor.
-          </div>
-        ) : (
-          <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            Configure <code>WHATSAPP_API_URL</code>, <code>WHATSAPP_API_KEY</code> e{" "}
-            <code>WHATSAPP_INSTANCE</code> no servidor antes de ativar os envios.
-          </div>
-        )}
+        <WhatsAppConnection
+          serverConfigured={evolutionServerConfigured}
+          initialInstance={initial.whatsapp_instance}
+        />
       </Section>
 
       <Section title="Moderação">

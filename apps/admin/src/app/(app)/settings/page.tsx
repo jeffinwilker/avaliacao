@@ -42,6 +42,7 @@ export default async function SettingsPage() {
     request_delay_days: 7,
     email_enabled: true,
     whatsapp_enabled: false,
+    whatsapp_instance: null,
     email_subject: "Conta pra gente o que achou da sua compra?",
     email_template: DEFAULT_EMAIL_TEMPLATE,
     whatsapp_template: DEFAULT_WHATSAPP_TEMPLATE,
@@ -64,10 +65,8 @@ export default async function SettingsPage() {
       <SettingsForm
         storeName={store.name}
         initial={initial}
-        whatsappConfigured={Boolean(
-          process.env.WHATSAPP_API_URL &&
-            process.env.WHATSAPP_API_KEY &&
-            process.env.WHATSAPP_INSTANCE
+        evolutionServerConfigured={Boolean(
+          process.env.WHATSAPP_API_URL && process.env.WHATSAPP_API_KEY
         )}
       />
     </div>

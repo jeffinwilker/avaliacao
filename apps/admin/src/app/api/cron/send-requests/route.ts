@@ -56,7 +56,9 @@ async function sendReviewRequests(
   const storeIds = [...new Set(requests.map((request) => request.store_id))];
   const { data: settings } = await admin
     .from("store_settings")
-    .select("store_id, email_subject, email_template, whatsapp_template")
+    .select(
+      "store_id, email_subject, email_template, whatsapp_template, whatsapp_instance"
+    )
     .in("store_id", storeIds);
   const settingsByStore = new Map(
     (settings ?? []).map((config) => [config.store_id, config])
@@ -125,6 +127,7 @@ async function sendReviewRequests(
           message: replaceVars(
             config?.whatsapp_template || DEFAULT_WHATSAPP_TEMPLATE
           ),
+          instance: config?.whatsapp_instance,
         });
       } else {
         throw new Error("Canal sem destinatário disponível");
