@@ -37,6 +37,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Status inválido" }, { status: 400 });
   }
 
+  const invalidDateRow = body.reviews.findIndex(
+    (review) =>
+      review.created_at != null &&
+      review.created_at !== "" &&
+      Number.isNaN(new Date(review.created_at).getTime())
+  );
+  if (invalidDateRow >= 0) {
+    return NextResponse.json(
+      { error: `Data inválida na linha ${invalidDateRow + 1}` },
+      { status: 400 }
+    );
+  }
+
   const admin = createAdminClient();
 
   const { data: store } = await admin
@@ -69,7 +82,7 @@ export async function POST(req: NextRequest) {
       comment: r.comment?.trim()?.slice(0, 1500) || null,
       status: body.status,
       verified_purchase: r.verified_purchase ?? false,
-      created_at: r.created_at ?? now,
+      created_at: r.created_at ? new Date(r.created_at).toISOString() : now,
       moderated_at: body.status === "approved" ? now : null,
     }));
 

@@ -28,6 +28,8 @@ interface Row {
   title: string;
   comment: string;
   created_at: string;
+  date_raw: string;
+  date_error: boolean;
   verified: boolean;
   product_id: string | null;
   match_score: number;
@@ -172,7 +174,10 @@ export function ImportClient({ products }: { products: Product[] }) {
       total: rows.length,
       matched: rows.filter((r) => r.product_id).length,
       unmatched: rows.filter((r) => !r.product_id).length,
-      valid: rows.filter((r) => r.product_id && r.rating && r.customer_name).length,
+      invalidDates: rows.filter((r) => r.date_error).length,
+      valid: rows.filter(
+        (r) => r.product_id && r.rating && r.customer_name && !r.date_error
+      ).length,
     }),
     [rows]
   );
@@ -190,7 +195,7 @@ export function ImportClient({ products }: { products: Product[] }) {
     setError(null);
     setImporting(true);
     const payload = rows
-      .filter((r) => r.product_id && r.rating && r.customer_name)
+      .filter((r) => r.product_id && r.rating && r.customer_name && !r.date_error)
       .map((r) => ({
         product_id: r.product_id!,
         customer_name: r.customer_name,
@@ -341,12 +346,21 @@ export function ImportClient({ products }: { products: Product[] }) {
       </section>
 
       {/* Stats */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Stat label="Total" value={stats.total} />
         <Stat label="Reconhecidos" value={stats.matched} positive />
         <Stat label="Sem produto" value={stats.unmatched} warn={stats.unmatched > 0} />
+        <Stat label="Datas inválidas" value={stats.invalidDates} warn={stats.invalidDates > 0} />
         <Stat label="Prontos p/ importar" value={stats.valid} />
       </section>
+
+      {stats.invalidDates > 0 && (
+        <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl px-4 py-3 text-sm">
+          <strong>{stats.invalidDates} linha(s) com data inválida.</strong>{" "}
+          Corrija a planilha ou escolha “ignorar” no campo Data. Essas linhas não serão
+          importadas enquanto a data estiver inválida.
+        </div>
+      )}
 
       {stats.unmatched > 0 && (
         <button
@@ -391,6 +405,7 @@ export function ImportClient({ products }: { products: Product[] }) {
                 <th className="text-left px-3 py-2">→ Produto no sistema</th>
                 <th className="text-left px-3 py-2">Cliente</th>
                 <th className="text-left px-3 py-2 w-20">Nota</th>
+                <th className="text-left px-3 py-2">Data</th>
                 <th className="text-left px-3 py-2 max-w-xs">Comentário</th>
               </tr>
             </thead>
@@ -398,7 +413,10 @@ export function ImportClient({ products }: { products: Product[] }) {
               {pageRows.map((row) => {
                 const absIdx = rows.indexOf(row);
                 return (
-                  <tr key={absIdx} className={!row.product_id ? "bg-red-50/50" : ""}>
+                  <tr
+                    key={absIdx}
+                    className={!row.product_id || row.date_error ? "bg-red-50/50" : ""}
+                  >
                     <td className="px-3 py-2 text-gray-500">{absIdx + 1}</td>
                     <td className="px-3 py-2 text-gray-800">
                       <MatchDot score={row.match_score} />{" "}
@@ -414,6 +432,16 @@ export function ImportClient({ products }: { products: Product[] }) {
                     <td className="px-3 py-2">{row.customer_name}</td>
                     <td className="px-3 py-2">
                       {row.rating ? "⭐".repeat(row.rating) : "—"}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {row.date_raw ? (
+                        <span className={row.date_error ? "text-red-700 font-medium" : "text-gray-700"}>
+                          {row.date_raw}
+                          {row.date_error && <span className="block text-xs">formato inválido</span>}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">hoje</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 max-w-xs truncate text-gray-700">
                       {row.comment || row.title || "—"}
@@ -649,12 +677,8 @@ function buildRow(
     const n = parseFloat(ratingRaw.replace(",", "."));
     if (Number.isFinite(n)) rating = Math.min(5, Math.max(1, Math.round(n)));
   }
-  let createdAt = "";
   const dateRaw = getStr("created_at");
-  if (dateRaw) {
-    const d = new Date(dateRaw);
-    if (!isNaN(d.getTime())) createdAt = d.toISOString();
-  }
+  const createdAt = dateRaw ? parseImportDate(dateRaw) ?? "" : "";
   const verifiedRaw = getStr("verified").toLowerCase();
   const verified = ["sim", "yes", "true", "1", "verificada", "verified"].includes(verifiedRaw);
 
@@ -674,11 +698,44 @@ function buildRow(
     title: getStr("title"),
     comment: getStr("comment"),
     created_at: createdAt,
+    date_raw: dateRaw,
+    date_error: Boolean(dateRaw && !createdAt),
     verified,
     product_id: auto?.id ?? null,
     match_score: auto?.score ?? best?.score ?? 0,
     candidates,
   };
+}
+
+/**
+ * Converte datas sem horário ao meio-dia UTC para preservar o dia exibido em
+ * fusos diferentes. Formatos com barra são sempre tratados como dia/mês/ano.
+ */
+function parseImportDate(value: string): string | null {
+  const raw = value.trim();
+
+  const br = raw.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);
+  if (br) return datePartsToIso(Number(br[3]), Number(br[2]), Number(br[1]));
+
+  const isoDate = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoDate) {
+    return datePartsToIso(Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3]));
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function datePartsToIso(year: number, month: number, day: number): string | null {
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return parsed.toISOString();
 }
 
 // ==================== micro components ====================
