@@ -32,7 +32,7 @@ npm install
 cp .env.example .env
 # edite .env com suas chaves
 
-# 3. Subir schema do banco (rode o SQL em supabase/migrations/0001_initial.sql no SQL Editor)
+# 3. Subir o banco (rode todos os arquivos de supabase/migrations em ordem no SQL Editor)
 ```
 
 ## Rodar em desenvolvimento
@@ -51,6 +51,10 @@ npm run build
 O bundle do widget fica em `apps/widget/dist/avaliacoes-widget.js` — esse arquivo é hospedado num CDN e injetado na Nuvemshop via script tag.
 
 ## Integração na Nuvemshop
+
+Para automações de carrinho abandonado e pós-venda, o aplicativo precisa da
+permissão `read_orders`, dos webhooks de pedido registrados e do cron configurado
+conforme `deploy/README.md`.
 
 Cole no tema da loja (Configurações → HTML/CSS → produto.tpl):
 
