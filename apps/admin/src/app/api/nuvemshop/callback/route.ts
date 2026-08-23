@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { registerWebhook } from "@/lib/nuvemshop";
 
 // Callback do OAuth da Nuvemshop.
 // Doc: https://tiendanube.github.io/api-documentation/authentication
@@ -105,6 +106,21 @@ export async function GET(req: NextRequest) {
     { store_id: store.id },
     { onConflict: "store_id" }
   );
+
+  if (APP_URL.startsWith("https://")) {
+    const webhookUrl = `${APP_URL.replace(/\/$/, "")}/api/nuvemshop/webhook`;
+    await Promise.allSettled(
+      ["order/created", "order/paid", "order/fulfilled", "order/cancelled"].map(
+        (event) =>
+          registerWebhook(
+            externalStoreId,
+            tokenJson.access_token,
+            event,
+            webhookUrl
+          )
+      )
+    );
+  }
 
   return NextResponse.redirect(new URL("/integration?connected=1", APP_URL));
 }

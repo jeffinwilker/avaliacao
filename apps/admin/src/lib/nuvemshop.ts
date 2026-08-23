@@ -31,16 +31,48 @@ export interface NuvemshopProduct {
 
 export interface NuvemshopOrder {
   id: number;
-  customer: {
+  number?: number | string;
+  token?: string | null;
+  customer?: {
     name: string;
     email?: string;
     phone?: string;
-  };
+  } | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
   status: string;
+  payment_status?: string;
   shipping_status?: string;
-  products: Array<{ product_id: number; variant_id?: number; quantity: number }>;
+  products: Array<{
+    product_id: number;
+    variant_id?: number;
+    quantity: number;
+    name?: string;
+  }>;
   created_at: string;
+  paid_at?: string | null;
   shipped_at?: string;
+}
+
+export interface NuvemshopAbandonedCheckout {
+  id: number;
+  token: string;
+  abandoned_checkout_url: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  shipping_name?: string | null;
+  shipping_phone?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  products: Array<{
+    product_id: number;
+    variant_id?: number;
+    quantity: number;
+    name: string;
+  }>;
 }
 
 export interface NuvemshopCategory {
@@ -295,6 +327,61 @@ export async function fetchOrder(
   orderId: string | number
 ): Promise<NuvemshopOrder> {
   return request<NuvemshopOrder>("GET", storeId, token, `/orders/${orderId}`);
+}
+
+/**
+ * A Nuvemshop não possui webhook de carrinho abandonado. A lista pode ganhar
+ * novos registros até seis horas depois do abandono, então o cron percorre as
+ * páginas disponíveis e a fila local garante idempotência.
+ */
+export async function fetchAllAbandonedCheckouts(
+  storeId: string,
+  token: string
+): Promise<NuvemshopAbandonedCheckout[]> {
+  const all: NuvemshopAbandonedCheckout[] = [];
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    let batch: NuvemshopAbandonedCheckout[];
+    try {
+      batch = await request<NuvemshopAbandonedCheckout[]>(
+        "GET",
+        storeId,
+        token,
+        "/checkouts",
+        { params: { page, per_page: perPage } }
+      );
+    } catch (error) {
+      // Algumas contas retornam 404 em vez de [] quando não há carrinhos
+      // ou quando a paginação chega ao fim.
+      if ((error as Error).message.includes("API 404 GET /checkouts")) break;
+      throw error;
+    }
+    all.push(...batch);
+    if (batch.length < perPage) break;
+    page++;
+  }
+
+  return all;
+}
+
+export async function checkAbandonedCheckoutAccess(
+  storeId: string,
+  token: string
+): Promise<void> {
+  try {
+    await request<NuvemshopAbandonedCheckout[]>(
+      "GET",
+      storeId,
+      token,
+      "/checkouts",
+      { params: { page: 1, per_page: 1, fields: "id" } }
+    );
+  } catch (error) {
+    if ((error as Error).message.includes("API 404 GET /checkouts")) return;
+    throw error;
+  }
 }
 
 // ============================ WEBHOOKS ============================

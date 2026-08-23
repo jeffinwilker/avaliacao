@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { registerWebhook } from "@/lib/nuvemshop";
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -40,6 +41,22 @@ export async function POST(req: NextRequest) {
     { store_id: store.id },
     { onConflict: "store_id" }
   );
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (appUrl?.startsWith("https://")) {
+    const webhookUrl = `${appUrl.replace(/\/$/, "")}/api/nuvemshop/webhook`;
+    await Promise.allSettled(
+      ["order/created", "order/paid", "order/fulfilled", "order/cancelled"].map(
+        (event) =>
+          registerWebhook(
+            String(external_store_id),
+            access_token,
+            event,
+            webhookUrl
+          )
+      )
+    );
+  }
 
   return NextResponse.json({ ok: true, store_id: store.id });
 }

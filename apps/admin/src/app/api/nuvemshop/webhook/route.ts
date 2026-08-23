@@ -1,25 +1,29 @@
+import { createHmac, timingSafeEqual } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  cancelAbandonedCartForOrder,
+  cancelMessagesForOrder,
+  queuePostPurchaseMessage,
+  summarizeProducts,
+} from "@/lib/automations";
 import { fetchOrder } from "@/lib/nuvemshop";
-import { createHmac } from "crypto";
+import { createAdminClient } from "@/lib/supabase/admin";
 
-// Webhook da Nuvemshop. Eventos relevantes:
-//   - order/paid: cria solicitação de avaliação (com delay)
-//   - order/fulfilled: idem (se já passou pelo paid, ignora dup)
-//
-// Doc: https://tiendanube.github.io/api-documentation/resources/webhook
-// Assinatura: HMAC-SHA256 do body usando o client_secret, header x-linkedstore-hmac-sha256
+const HANDLED_EVENTS = [
+  "order/created",
+  "order/paid",
+  "order/fulfilled",
+  "order/cancelled",
+] as const;
 
+// A fila usa chaves únicas e consultas de existência porque a Nuvemshop
+// pode reenviar eventos ou entregá-los fora de ordem.
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const signature = req.headers.get("x-linkedstore-hmac-sha256");
 
-  const secret = process.env.NUVEMSHOP_CLIENT_SECRET;
-  if (secret && signature) {
-    const expected = createHmac("sha256", secret).update(body).digest("base64");
-    if (expected !== signature) {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
+  if (!isValidSignature(body, signature)) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
   let payload: { store_id: number; event: string; id: number };
@@ -29,81 +33,147 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { store_id: externalStoreId, event, id: orderId } = payload;
-
-  if (!["order/paid", "order/fulfilled"].includes(event)) {
+  if (!HANDLED_EVENTS.includes(payload.event as (typeof HANDLED_EVENTS)[number])) {
     return NextResponse.json({ ok: true, ignored: true });
   }
 
   const admin = createAdminClient();
+  const externalStoreId = String(payload.store_id);
+  const externalOrderId = String(payload.id);
   const { data: store } = await admin
     .from("stores")
-    .select("id, access_token")
+    .select("id, name, domain, access_token")
     .eq("platform", "nuvemshop")
-    .eq("external_store_id", String(externalStoreId))
+    .eq("external_store_id", externalStoreId)
     .maybeSingle();
 
   if (!store?.access_token) {
     return NextResponse.json({ error: "Store not connected" }, { status: 404 });
   }
 
-  // Busca o pedido completo na API
-  const order = await fetchOrder(String(externalStoreId), store.access_token, orderId);
+  const order = await fetchOrder(externalStoreId, store.access_token, payload.id);
+  const customerName = order.customer?.name || order.contact_name || "Cliente";
+  const customerEmail = order.customer?.email || order.contact_email || null;
+  const customerPhone = order.customer?.phone || order.contact_phone || null;
 
-  // Upsert do pedido
-  const { data: orderRow } = await admin
+  const { data: orderRow, error: orderError } = await admin
     .from("orders")
     .upsert(
       {
         store_id: store.id,
-        external_order_id: String(order.id),
-        customer_name: order.customer.name,
-        customer_email: order.customer.email ?? null,
-        customer_phone: order.customer.phone ?? null,
-        status: order.status,
+        external_order_id: externalOrderId,
+        customer_name: customerName,
+        customer_email: customerEmail,
+        customer_phone: customerPhone,
+        status: order.payment_status || order.status,
         ordered_at: order.created_at,
-        delivered_at: order.shipped_at ?? null,
+        delivered_at: order.shipped_at || null,
       },
       { onConflict: "store_id,external_order_id" }
     )
     .select("id")
     .single();
 
-  if (!orderRow) {
-    return NextResponse.json({ error: "Failed to upsert order" }, { status: 500 });
+  if (orderError || !orderRow) {
+    return NextResponse.json(
+      { error: orderError?.message || "Failed to upsert order" },
+      { status: 500 }
+    );
   }
 
-  // Settings
-  const { data: settings } = await admin
-    .from("store_settings")
-    .select("request_delay_days, email_enabled, whatsapp_enabled")
-    .eq("store_id", store.id)
-    .maybeSingle();
+  // Qualquer pedido originado do checkout invalida a recuperação de carrinho.
+  await cancelAbandonedCartForOrder(admin, store.id, order.token);
 
-  const delay = settings?.request_delay_days ?? 7;
-  const scheduledFor = new Date(Date.now() + delay * 86400_000).toISOString();
+  if (payload.event === "order/cancelled") {
+    await Promise.all([
+      cancelMessagesForOrder(admin, {
+        storeId: store.id,
+        externalOrderId,
+        sourceToken: order.token,
+      }),
+      admin
+        .from("review_requests")
+        .update({ status: "cancelled", error_message: "Pedido cancelado" })
+        .eq("order_id", orderRow.id)
+        .eq("status", "scheduled"),
+    ]);
+    return NextResponse.json({ ok: true, cancelled: true });
+  }
 
-  // Para cada produto do pedido, cria solicitações (uma por canal)
-  for (const item of order.products) {
+  const localProducts: Array<{ id: string; name: string }> = [];
+  const localNamesByExternalId = new Map<string, string>();
+  for (const item of order.products ?? []) {
     const { data: product } = await admin
       .from("products")
-      .select("id")
+      .select("id, name")
       .eq("store_id", store.id)
       .eq("external_product_id", String(item.product_id))
       .maybeSingle();
     if (!product) continue;
 
+    const productName = item.name || product.name;
+    localProducts.push({ id: product.id, name: productName });
+    localNamesByExternalId.set(String(item.product_id), productName);
+
     await admin.from("order_items").upsert(
       { order_id: orderRow.id, product_id: product.id, quantity: item.quantity },
-      { onConflict: "order_id,product_id" } as never
+      { onConflict: "order_id,product_id" }
     );
+  }
 
-    const channels: ("email" | "whatsapp")[] = [];
-    if (settings?.email_enabled && order.customer.email) channels.push("email");
-    if (settings?.whatsapp_enabled && order.customer.phone) channels.push("whatsapp");
+  if (payload.event === "order/created") {
+    return NextResponse.json({ ok: true, orderCreated: true });
+  }
+
+  const { data: settings } = await admin
+    .from("store_settings")
+    .select(
+      `request_delay_days, email_enabled, whatsapp_enabled,
+       post_purchase_enabled, post_purchase_delay_hours`
+    )
+    .eq("store_id", store.id)
+    .maybeSingle();
+
+  const paidAt = order.paid_at ? new Date(order.paid_at).getTime() : NaN;
+  const baseTime = Number.isFinite(paidAt) ? paidAt : Date.now();
+
+  if (settings?.post_purchase_enabled && customerPhone) {
+    const productsSummary = summarizeProducts(
+      (order.products ?? []).map((item) => ({
+        name:
+          item.name ||
+          localNamesByExternalId.get(String(item.product_id)) ||
+          "Produto",
+        quantity: item.quantity,
+      }))
+    );
+    const delayHours = Math.max(0, settings.post_purchase_delay_hours ?? 24);
+    await queuePostPurchaseMessage(admin, {
+      storeId: store.id,
+      externalReference: externalOrderId,
+      referenceLabel: String(order.number || externalOrderId),
+      sourceToken: order.token,
+      customerName,
+      customerPhone,
+      productsSummary: productsSummary || "seus produtos",
+      link: store.domain ? normalizeStoreUrl(store.domain) : null,
+      scheduledFor: new Date(baseTime + delayHours * 3600_000).toISOString(),
+    });
+  }
+
+  // A solicitação de avaliação continua sendo uma automação de pós-venda
+  // independente da mensagem geral acima.
+  const reviewDelay = settings?.request_delay_days ?? 7;
+  const reviewScheduledFor = new Date(
+    Date.now() + reviewDelay * 86400_000
+  ).toISOString();
+
+  for (const product of localProducts) {
+    const channels: Array<"email" | "whatsapp"> = [];
+    if (settings?.email_enabled && customerEmail) channels.push("email");
+    if (settings?.whatsapp_enabled && customerPhone) channels.push("whatsapp");
 
     for (const channel of channels) {
-      // evita duplicados
       const { data: existing } = await admin
         .from("review_requests")
         .select("id")
@@ -118,10 +188,30 @@ export async function POST(req: NextRequest) {
         order_id: orderRow.id,
         product_id: product.id,
         channel,
-        scheduled_for: scheduledFor,
+        scheduled_for: reviewScheduledFor,
       });
     }
   }
 
   return NextResponse.json({ ok: true });
+}
+
+function isValidSignature(body: string, signature: string | null): boolean {
+  const secret = process.env.NUVEMSHOP_CLIENT_SECRET;
+  if (!secret) return process.env.NODE_ENV !== "production";
+  if (!signature) return false;
+
+  const expected = createHmac("sha256", secret).update(body).digest("base64");
+  const expectedBuffer = Buffer.from(expected);
+  const signatureBuffer = Buffer.from(signature);
+  return (
+    expectedBuffer.length === signatureBuffer.length &&
+    timingSafeEqual(expectedBuffer, signatureBuffer)
+  );
+}
+
+function normalizeStoreUrl(domain: string): string {
+  return domain.startsWith("http://") || domain.startsWith("https://")
+    ? domain
+    : `https://${domain}`;
 }

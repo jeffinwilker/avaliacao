@@ -30,6 +30,12 @@ export interface StoreSettings {
   emailSubject: string;
   emailTemplate: string | null;
   whatsappTemplate: string | null;
+  abandonedCartEnabled: boolean;
+  abandonedCartDelayHours: number;
+  abandonedCartWhatsappTemplate: string | null;
+  postPurchaseEnabled: boolean;
+  postPurchaseDelayHours: number;
+  postPurchaseWhatsappTemplate: string | null;
   brandColor: string;
   allowMedia: boolean;
   maxMediaPerReview: number;

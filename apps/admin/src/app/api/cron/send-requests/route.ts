@@ -1,105 +1,130 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  sendScheduledAutomationMessages,
+  syncAbandonedCarts,
+} from "@/lib/automations";
 import { sendEmail } from "@/lib/providers/resend";
 import { sendWhatsApp } from "@/lib/providers/whatsapp";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   DEFAULT_EMAIL_TEMPLATE,
   DEFAULT_WHATSAPP_TEMPLATE,
 } from "@avaliacoes/shared";
 
-// Cron job: processa fila de review_requests prontas para envio.
-// Configure no Vercel ou em qualquer scheduler para chamar a cada 15-30 min.
-// Proteção: header x-cron-secret deve bater com env CRON_SECRET.
-
+// O mesmo cron sincroniza carrinhos, envia recuperações/pós-venda e processa
+// as solicitações de avaliação. A fila e os upserts tornam a execução
+// idempotente mesmo quando chamada mais de uma vez.
 export async function POST(req: NextRequest) {
   if (req.headers.get("x-cron-secret") !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const admin = createAdminClient();
+  const sync = await syncAbandonedCarts(admin).catch((error) => ({
+    stores: 0,
+    found: 0,
+    eligible: 0,
+    queued: 0,
+    cancelled: 0,
+    errors: [(error as Error).message],
+  }));
+  const automations = await sendScheduledAutomationMessages(admin);
+  const reviews = await sendReviewRequests(admin);
 
+  return NextResponse.json({ ok: true, sync, automations, reviews });
+}
+
+async function sendReviewRequests(
+  admin: ReturnType<typeof createAdminClient>
+): Promise<{ processed: number; sent: number; failed: number }> {
   const { data: requests } = await admin
     .from("review_requests")
     .select(
-      `id, channel, token, store_id, order_id, product_id, attempts,
-       store:stores (name, domain, api_key),
-       settings:stores!inner (store_settings (email_subject, email_template, whatsapp_template)),
+      `id, channel, token, store_id, attempts,
+       store:stores (name, domain),
        order:orders (customer_name, customer_email, customer_phone),
-       product:products (name, external_product_id, image_url)`
+       product:products (name, external_product_id, url)`
     )
     .eq("status", "scheduled")
     .lte("scheduled_for", new Date().toISOString())
     .lt("attempts", 5)
+    .order("scheduled_for", { ascending: true })
     .limit(50);
 
-  if (!requests || requests.length === 0) {
-    return NextResponse.json({ ok: true, processed: 0 });
-  }
+  if (!requests?.length) return { processed: 0, sent: 0, failed: 0 };
+
+  const storeIds = [...new Set(requests.map((request) => request.store_id))];
+  const { data: settings } = await admin
+    .from("store_settings")
+    .select("store_id, email_subject, email_template, whatsapp_template")
+    .in("store_id", storeIds);
+  const settingsByStore = new Map(
+    (settings ?? []).map((config) => [config.store_id, config])
+  );
 
   let sent = 0;
   let failed = 0;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
-  for (const r of requests) {
-    type Store = { name: string; domain: string | null; api_key: string };
+  for (const request of requests) {
+    type Store = { name: string; domain: string | null };
     type Order = {
       customer_name: string;
       customer_email: string | null;
       customer_phone: string | null;
     };
-    type Product = { name: string; external_product_id: string };
-    const store = r.store as unknown as Store;
-    const order = r.order as unknown as Order;
-    const product = r.product as unknown as Product;
+    type Product = {
+      name: string;
+      external_product_id: string;
+      url: string | null;
+    };
+
+    const store = pickRelation<Store>(request.store);
+    const order = pickRelation<Order>(request.order);
+    const product = pickRelation<Product>(request.product);
+    const config = settingsByStore.get(request.store_id);
 
     if (!store || !order || !product) {
       await admin
         .from("review_requests")
         .update({ status: "cancelled", error_message: "missing relations" })
-        .eq("id", r.id);
+        .eq("id", request.id);
       failed++;
       continue;
     }
 
-    // Link para a página do produto com o token (widget detecta e abre o form)
-    const link = store.domain
-      ? `https://${store.domain.replace(/^https?:\/\//, "")}/produto-${product.external_product_id}?av-token=${r.token}`
-      : `${appUrl}/r/${r.token}`;
-
-    const vars = {
-      "{{nome}}": order.customer_name.split(" ")[0],
+    const baseLink = product.url ||
+      (store.domain ? normalizeStoreUrl(store.domain) : `${appUrl}/r/${request.token}`);
+    const link = baseLink.includes("/r/")
+      ? baseLink
+      : `${baseLink}${baseLink.includes("?") ? "&" : "?"}av-token=${request.token}`;
+    const vars: Record<string, string> = {
+      "{{nome}}": firstName(order.customer_name),
       "{{produto}}": product.name,
       "{{link}}": link,
       "{{loja}}": store.name,
     };
-
     const replaceVars = (template: string) =>
       Object.entries(vars).reduce(
-        (str, [k, v]) => str.replaceAll(k, v),
+        (message, [variable, value]) => message.replaceAll(variable, value),
         template
       );
 
     try {
-      if (r.channel === "email" && order.customer_email) {
-        const tpl =
-          (r as unknown as { settings: { store_settings: { email_template: string | null } } })
-            .settings?.store_settings?.email_template ?? DEFAULT_EMAIL_TEMPLATE;
-        const subject =
-          (r as unknown as { settings: { store_settings: { email_subject: string | null } } })
-            .settings?.store_settings?.email_subject ??
-          "Conta pra gente o que achou da sua compra?";
+      if (request.channel === "email" && order.customer_email) {
         await sendEmail({
           to: order.customer_email,
-          subject: replaceVars(subject),
-          body: replaceVars(tpl),
+          subject: replaceVars(
+            config?.email_subject || "Conta pra gente o que achou da sua compra?"
+          ),
+          body: replaceVars(config?.email_template || DEFAULT_EMAIL_TEMPLATE),
         });
-      } else if (r.channel === "whatsapp" && order.customer_phone) {
-        const tpl =
-          (r as unknown as { settings: { store_settings: { whatsapp_template: string | null } } })
-            .settings?.store_settings?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE;
+      } else if (request.channel === "whatsapp" && order.customer_phone) {
         await sendWhatsApp({
           phone: order.customer_phone,
-          message: replaceVars(tpl),
+          message: replaceVars(
+            config?.whatsapp_template || DEFAULT_WHATSAPP_TEMPLATE
+          ),
         });
       } else {
         throw new Error("Canal sem destinatário disponível");
@@ -110,24 +135,39 @@ export async function POST(req: NextRequest) {
         .update({
           status: "sent",
           sent_at: new Date().toISOString(),
-          attempts: r.attempts + 1,
+          attempts: request.attempts + 1,
+          error_message: null,
         })
-        .eq("id", r.id);
+        .eq("id", request.id);
       sent++;
-    } catch (err) {
-      const attempts = r.attempts + 1;
-      const failNow = attempts >= 5;
+    } catch (error) {
+      const attempts = request.attempts + 1;
       await admin
         .from("review_requests")
         .update({
-          status: failNow ? "failed" : "scheduled",
+          status: attempts >= 5 ? "failed" : "scheduled",
           attempts,
-          error_message: (err as Error).message,
+          error_message: (error as Error).message.slice(0, 1000),
         })
-        .eq("id", r.id);
+        .eq("id", request.id);
       failed++;
     }
   }
 
-  return NextResponse.json({ ok: true, sent, failed });
+  return { processed: requests.length, sent, failed };
+}
+
+function pickRelation<T>(value: unknown): T | null {
+  if (Array.isArray(value)) return (value[0] as T | undefined) ?? null;
+  return (value as T | null) ?? null;
+}
+
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] || "cliente";
+}
+
+function normalizeStoreUrl(domain: string): string {
+  return domain.startsWith("http://") || domain.startsWith("https://")
+    ? domain
+    : `https://${domain}`;
 }

@@ -12,6 +12,7 @@ const items = [
   { href: "/kits", label: "Kits", icon: "🎁" },
   { href: "/products", label: "Produtos", icon: "🛍️" },
   { href: "/import", label: "Importar", icon: "📥" },
+  { href: "/automations", label: "Automações", icon: "📲" },
   { href: "/preview", label: "Preview do widget", icon: "👁️" },
   { href: "/settings", label: "Configurações", icon: "⚙️" },
   { href: "/integration", label: "Integração", icon: "🔌" },

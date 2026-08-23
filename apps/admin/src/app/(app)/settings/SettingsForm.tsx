@@ -12,6 +12,12 @@ interface Settings {
   email_subject: string | null;
   email_template: string | null;
   whatsapp_template: string | null;
+  abandoned_cart_enabled: boolean;
+  abandoned_cart_delay_hours: number;
+  abandoned_cart_whatsapp_template: string | null;
+  post_purchase_enabled: boolean;
+  post_purchase_delay_hours: number;
+  post_purchase_whatsapp_template: string | null;
   brand_color: string | null;
   allow_media: boolean;
   max_media_per_review: number;
@@ -20,30 +26,37 @@ interface Settings {
 export function SettingsForm({
   storeName,
   initial,
+  whatsappConfigured,
 }: {
   storeName: string;
   initial: Settings;
+  whatsappConfigured: boolean;
 }) {
   const router = useRouter();
   const [s, setS] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setSaved(false);
+    setSaveError(null);
     const res = await fetch("/api/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(s),
     });
     setSaving(false);
-    if (res.ok) {
-      setSaved(true);
-      router.refresh();
-      setTimeout(() => setSaved(false), 2500);
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      setSaveError(json.error || "Não foi possível salvar as configurações");
+      return;
     }
+    setSaved(true);
+    router.refresh();
+    setTimeout(() => setSaved(false), 2500);
   }
 
   return (
@@ -52,6 +65,19 @@ export function SettingsForm({
         <div className="text-sm text-gray-600">
           Conectada: <strong>{storeName}</strong>
         </div>
+      </Section>
+
+      <Section title="WhatsApp">
+        {whatsappConfigured ? (
+          <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg p-3">
+            ✓ Evolution API configurada no servidor.
+          </div>
+        ) : (
+          <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            Configure <code>WHATSAPP_API_URL</code>, <code>WHATSAPP_API_KEY</code> e{" "}
+            <code>WHATSAPP_INSTANCE</code> no servidor antes de ativar os envios.
+          </div>
+        )}
       </Section>
 
       <Section title="Moderação">
@@ -82,7 +108,7 @@ export function SettingsForm({
         )}
       </Section>
 
-      <Section title="Solicitação automática">
+      <Section title="Solicitação de avaliação (pós-venda)">
         <Field label="Dias após o pedido para pedir avaliação">
           <input
             type="number"
@@ -145,6 +171,83 @@ export function SettingsForm({
         )}
       </Section>
 
+      <Section title="Recuperação de carrinho abandonado">
+        <Toggle
+          label="Enviar recuperação por WhatsApp"
+          hint="Ative somente para clientes que autorizaram contato pelo WhatsApp. A Nuvemshop pode levar até 6 horas para disponibilizar o carrinho."
+          value={s.abandoned_cart_enabled}
+          onChange={(value) => setS({ ...s, abandoned_cart_enabled: value })}
+        />
+        {s.abandoned_cart_enabled && (
+          <>
+            <Field
+              label="Horas após o abandono"
+              hint="O mínimo é 6 horas, conforme a disponibilidade da API da Nuvemshop."
+            >
+              <input
+                type="number"
+                min={6}
+                max={168}
+                value={s.abandoned_cart_delay_hours}
+                onChange={(e) =>
+                  setS({ ...s, abandoned_cart_delay_hours: Number(e.target.value) })
+                }
+                className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </Field>
+            <Field
+              label="Mensagem de recuperação"
+              hint="Variáveis: {{nome}}, {{produtos}}, {{link}}, {{loja}}"
+            >
+              <textarea
+                value={s.abandoned_cart_whatsapp_template ?? ""}
+                onChange={(e) =>
+                  setS({ ...s, abandoned_cart_whatsapp_template: e.target.value })
+                }
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[150px] font-mono"
+              />
+            </Field>
+          </>
+        )}
+      </Section>
+
+      <Section title="Mensagem automática após a compra">
+        <Toggle
+          label="Enviar pós-venda por WhatsApp"
+          hint="Dispara uma mensagem por pedido pago, separada do pedido de avaliação."
+          value={s.post_purchase_enabled}
+          onChange={(value) => setS({ ...s, post_purchase_enabled: value })}
+        />
+        {s.post_purchase_enabled && (
+          <>
+            <Field label="Horas após a confirmação do pagamento">
+              <input
+                type="number"
+                min={0}
+                max={720}
+                value={s.post_purchase_delay_hours}
+                onChange={(e) =>
+                  setS({ ...s, post_purchase_delay_hours: Number(e.target.value) })
+                }
+                className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </Field>
+            <Field
+              label="Mensagem de pós-venda"
+              hint="Variáveis: {{nome}}, {{pedido}}, {{produtos}}, {{loja}}, {{link}}"
+            >
+              <textarea
+                value={s.post_purchase_whatsapp_template ?? ""}
+                onChange={(e) =>
+                  setS({ ...s, post_purchase_whatsapp_template: e.target.value })
+                }
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[140px] font-mono"
+              />
+            </Field>
+          </>
+        )}
+      </Section>
+
       <Section title="Aparência do widget">
         <Field
           label="Cor principal"
@@ -178,6 +281,7 @@ export function SettingsForm({
         {saved && (
           <span className="text-green-700 text-sm">✓ Salvo com sucesso</span>
         )}
+        {saveError && <span className="text-red-700 text-sm">{saveError}</span>}
       </div>
     </form>
   );

@@ -1,7 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SettingsForm } from "./SettingsForm";
 import {
+  DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
   DEFAULT_EMAIL_TEMPLATE,
+  DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
   DEFAULT_WHATSAPP_TEMPLATE,
 } from "@avaliacoes/shared";
 
@@ -33,7 +35,7 @@ export default async function SettingsPage() {
     .eq("store_id", store.id)
     .maybeSingle();
 
-  const initial = settings ?? {
+  const initial = {
     store_id: store.id,
     auto_publish: false,
     request_delay_days: 7,
@@ -42,15 +44,30 @@ export default async function SettingsPage() {
     email_subject: "Conta pra gente o que achou da sua compra?",
     email_template: DEFAULT_EMAIL_TEMPLATE,
     whatsapp_template: DEFAULT_WHATSAPP_TEMPLATE,
+    abandoned_cart_enabled: false,
+    abandoned_cart_delay_hours: 8,
+    abandoned_cart_whatsapp_template: DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
+    post_purchase_enabled: false,
+    post_purchase_delay_hours: 24,
+    post_purchase_whatsapp_template: DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
     brand_color: "#111827",
     allow_media: true,
     max_media_per_review: 5,
+    ...settings,
   };
 
   return (
     <div className="p-8 max-w-3xl">
       <h1 className="text-2xl font-bold mb-6">Configurações</h1>
-      <SettingsForm storeName={store.name} initial={initial} />
+      <SettingsForm
+        storeName={store.name}
+        initial={initial}
+        whatsappConfigured={Boolean(
+          process.env.WHATSAPP_API_URL &&
+            process.env.WHATSAPP_API_KEY &&
+            process.env.WHATSAPP_INSTANCE
+        )}
+      />
     </div>
   );
 }

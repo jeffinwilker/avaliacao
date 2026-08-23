@@ -110,6 +110,9 @@ Salva. **Desinstala e reinstala** o app na sua loja (senão fica com o access_to
 
 ## Passo 7 — Cron de envio (e-mail/WhatsApp)
 
+O mesmo endpoint processa solicitações de avaliação, consulta carrinhos
+abandonados na Nuvemshop e envia as mensagens de recuperação/pós-venda.
+
 Como não vamos usar Vercel Cron, agenda com o cron do próprio Linux:
 
 ```bash
@@ -119,7 +122,7 @@ crontab -e
 Cola no fim:
 
 ```
-*/30 * * * * curl -s -X POST -H "x-cron-secret: SEU_CRON_SECRET" http://127.0.0.1:3000/api/cron/send-requests > /dev/null 2>&1
+*/30 * * * * curl -s -X POST -H "x-cron-secret: SEU_CRON_SECRET" http://127.0.0.1:3002/api/cron/send-requests > /dev/null 2>&1
 ```
 
 Substitua `SEU_CRON_SECRET` pelo valor de `CRON_SECRET` do `.env.local`.

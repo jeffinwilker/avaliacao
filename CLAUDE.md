@@ -1,0 +1,289 @@
+# Avaliações + Kits — Guia do Projeto
+
+Sistema de **avaliações** e **kits de produtos** para lojas Nuvemshop, inspirado no
+Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte**.
+
+- **Painel (produção):** https://app.mesafy.shop
+- **Repositório:** https://github.com/jeffinwilker/avaliacao
+- **Widget na loja:** `https://app.mesafy.shop/widget/avaliacoes-widget.js`
+
+> Este arquivo é a fonte de verdade pra retomar o projeto. Cobre avaliações, kits
+> (até peso/dimensões) e as **automações de WhatsApp** (carrinho abandonado +
+> pós-venda). Fase 5 de estoque de kit via webhook ainda pendente.
+
+---
+
+## 1. Arquitetura
+
+Monorepo com **npm workspaces**:
+
+```
+.
+├── apps/
+│   ├── admin/     # Next.js 15 (App Router) — painel + APIs + webhooks. É o backend de tudo.
+│   └── widget/    # Vite (library mode) — bundle JS único embarcado no tema da loja.
+├── packages/
+│   └── shared/    # Tipos TypeScript + helpers puros compartilhados (@avaliacoes/shared)
+├── supabase/
+│   └── migrations/  # SQL (rodar manualmente no SQL Editor do Supabase)
+├── scripts/copy-widget.mjs   # copia o bundle do widget pra public/ do admin
+├── deploy/                    # nginx conf + README de deploy
+└── ecosystem.config.cjs       # PM2
+```
+
+**Decisão-chave:** não usamos Edge Functions do Supabase. Todo o backend são **API
+routes do Next.js** (`apps/admin/src/app/api/...`). Stack única, deploy único.
+
+**Stack:** Next.js 15 + React 18 + Tailwind (admin) · Vite + React 18 (widget) ·
+Supabase (Postgres + Auth magic-link + Storage) · Nuvemshop API · Resend (e-mail) ·
+Evolution/Z-API (WhatsApp) · xlsx (import/export).
+
+---
+
+## 2. Como rodar em outro PC
+
+```bash
+git clone https://github.com/jeffinwilker/avaliacao.git
+cd avaliacao
+npm install
+```
+
+Depois **crie os dois `.env.local`** (são gitignored — NÃO estão no repo).
+Copie-os do PC antigo (pen drive/nuvem) ou recrie com os valores dos painéis:
+
+- `apps/admin/.env.local` — ver seção **6. Variáveis de ambiente**
+- `apps/widget/.env.local`
+
+Rodar:
+
+```bash
+npm run dev:admin    # http://localhost:3000
+npm run dev:widget   # http://localhost:5173 (modo demo com dados fake se sem Supabase)
+```
+
+Build de produção (widget + admin):
+
+```bash
+npm run build
+```
+
+Typecheck rápido antes de commitar (recomendado — o build do VPS falha em erro de tipo):
+
+```bash
+cd apps/admin && npx tsc --noEmit
+```
+
+---
+
+## 3. Funcionalidades
+
+### Avaliações (reviews)
+- **Widget público** (`apps/widget`): estrelas (com meia-estrela via gradiente SVG),
+  lista paginada, filtro por nota, formulário com upload de fotos/vídeos (≤20MB),
+  token de pré-verificação vindo do link de e-mail/WhatsApp.
+- **Mini-summary** (`data-avaliacoes-summary`): estrelas + "4.5 · N avaliações" com
+  scroll até a lista. Usa **batch** (`/api/widget/stats`) pra vitrines/categorias.
+- **Painel admin**: dashboard, lista com filtros (pendente/aprovada/reprovada),
+  detalhe com aprovar/reprovar/responder, configurações (templates, auto-publicar,
+  cor da marca), **importação XLSX/CSV** com matching de produto por similaridade
+  (Dice/bigramas, `apps/admin/src/lib/match.ts`), export de produtos, modelo de import.
+
+### Kits de produtos
+Modelo **A+**: o kit é criado como **produto real na Nuvemshop** (tem página própria,
+checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticamente.
+
+- **CRUD** em `/kits` — nome, produtos incluídos (multi-select com busca), desconto
+  (percent / valor fixo / preço total), galeria de imagens (upload pro Storage +
+  "usar imagens dos produtos"), descrição com **editor rich-text** (WYSIWYG + código-
+  fonte HTML, `apps/admin/src/components/RichTextEditor.tsx`), **peso e dimensões**
+  (regra automática: soma peso + maior dimensão, ou custom), duplicar kit.
+- **Sync automático** (`apps/admin/src/lib/kit-sync.ts`): ao salvar, cria/atualiza o
+  produto-kit na Nuvemshop com preço "de/por" (promotional_price), descrição, galeria,
+  categoria "Kits", estoque (min montável) e peso/dimensões. Deletar o kit deleta o
+  produto na Nuvemshop.
+- **Widget na loja**:
+  - `data-avaliacoes-kit` → cards "Compre no kit" nas páginas dos produtos que fazem
+    parte de kits (batch `/api/widget/kits`).
+  - `data-avaliacoes-kit-items` → lista "Produtos do kit" na página do próprio kit
+    (`/api/widget/kit-contents`).
+
+### Integração Nuvemshop
+- OAuth (`/api/nuvemshop/callback`) **ou** conexão manual (colar token).
+- Sync de produtos (`/api/nuvemshop/sync-products`): nome, descrição, galeria, preço,
+  promo, estoque, variant_id, **peso e dimensões**.
+- Webhook `order/paid` (`/api/nuvemshop/webhook`) → cria `review_requests` com delay.
+
+### Automação de mensagens (WhatsApp/e-mail)
+- **Solicitação de avaliação pós-compra**: o webhook cria `review_requests` com delay;
+  o cron envia e-mail (Resend) + WhatsApp (Evolution/Z-API).
+- **Recuperação de carrinho abandonado** e **mensagem de pós-venda** (`apps/admin/src/lib/automations.ts`):
+  fila em `automation_messages` (migration 0006), consumida de forma concorrente-segura
+  pela RPC `claim_automation_messages`. Configurável em `/automations` (delays, templates,
+  ligar/desligar). O webhook `order/*` enfileira pós-venda e cancela recuperação quando
+  o pedido é criado/pago; `order/cancelled` cancela mensagens pendentes.
+- Webhooks (`order/created|paid|fulfilled|cancelled`) são **registrados automaticamente**
+  ao conectar a loja (OAuth ou manual), quando `NEXT_PUBLIC_APP_URL` é https.
+- Tudo processado por `/api/cron/send-requests` (header `x-cron-secret`): sincroniza
+  carrinhos, envia automações e processa solicitações de avaliação — idempotente.
+
+---
+
+## 4. Banco de dados (Supabase / Postgres)
+
+Rode as migrations **em ordem** no SQL Editor (idempotentes, usam `if not exists`):
+
+| Migration | Conteúdo |
+|---|---|
+| `0001_initial.sql` | stores, store_settings, products, orders, order_items, reviews, review_media, review_requests, view `product_review_stats`, RLS público de reviews aprovadas |
+| `0002_helpers.sql` | RPC `avg_rating_for_store`, `moderate_review`, `reply_to_review` |
+| `0003_kits.sql` | products.price/promotional_price/stock/variant_id, tabelas `kits` + `kit_items`, view `kits_with_items` |
+| `0004_kit_media.sql` | products.description/images, kits.images, bucket Storage `kit-media` |
+| `0005_kit_dimensions.sql` | products.weight/depth/width/height, kits.dimension_rule + weight/depth/width/height |
+| `0006_whatsapp_automations.sql` | store_settings (abandoned_cart_* / post_purchase_*), tabela `automation_messages` + RPC `claim_automation_messages`, índice único de order_items |
+
+**Storage buckets (públicos):** `review-media` (fotos/vídeos de reviews),
+`kit-media` (imagens de kit enviadas pelo lojista).
+
+**Multi-tenant:** as tabelas têm `store_id`, mas hoje só há **1 loja**. O admin usa o
+**service_role** (ignora RLS). O widget lê via endpoints públicos validados por `api_key`.
+
+---
+
+## 5. Deploy (VPS)
+
+- **Servidor:** Ubuntu 24.04, IP `145.223.31.158` (compartilhado com outros 5 apps PM2).
+- **Domínio:** `app.mesafy.shop` (registro A na Hostinger → IP; HTTPS via Let's Encrypt/certbot).
+- **Pasta:** `/var/www/avaliacoes`
+- **Processo PM2:** `avaliacoes-admin` na **porta 3002** (3000/3001/3010 já usadas por
+  outros apps — não mudar sem checar `ss -tlnp`).
+- **Nginx:** `/etc/nginx/sites-available/avaliacoes` faz proxy `app.mesafy.shop` → `127.0.0.1:3002`.
+
+### Atualizar produção
+```bash
+cd /var/www/avaliacoes && git pull && npm run build && pm2 restart avaliacoes-admin
+```
+- `npm run build` regenera o bundle do widget em `apps/admin/public/widget/avaliacoes-widget.js`
+  (esse arquivo é **gitignored** — não versionar).
+- Se `pm2 restart` falhar com "process not found": `pm2 start ecosystem.config.cjs && pm2 save`.
+- Detalhes completos em `deploy/README.md`.
+
+---
+
+## 6. Variáveis de ambiente
+
+**Nunca commitar segredos.** Os `.env.local` são gitignored. Identificadores públicos
+(estão no HTML da loja / URLs) podem ficar aqui; segredos, obter no painel.
+
+`apps/admin/.env.local`:
+```
+# Supabase (URL e anon são públicas; SERVICE_ROLE é SEGREDO)
+SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY
+NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY
+NEXT_PUBLIC_APP_URL=https://app.mesafy.shop   # em dev: http://localhost:3000
+
+# Nuvemshop (CLIENT_ID=37558 público; CLIENT_SECRET é SEGREDO)
+NUVEMSHOP_CLIENT_ID / NUVEMSHOP_CLIENT_SECRET / NUVEMSHOP_WEBHOOK_SECRET
+
+# Envio (ainda não configurados — ver Pendências)
+RESEND_API_KEY / RESEND_FROM_EMAIL
+WHATSAPP_PROVIDER=evolution / WHATSAPP_API_URL / WHATSAPP_API_KEY / WHATSAPP_INSTANCE
+
+# Cron (SEGREDO — gerar com: openssl rand -hex 32)
+CRON_SECRET
+```
+
+`apps/widget/.env.local`:
+```
+VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
+VITE_ADMIN_URL=https://app.mesafy.shop        # em dev: http://localhost:3000
+```
+
+**Identificadores da loja (não são segredo — o api_key aparece no HTML da loja):**
+- Supabase project ref: `gtsvlrbjwgpzjjiezojh`
+- Nuvemshop App (Client ID): `37558`
+- `data-store-key` (api_key da loja): `198dc71dd35e4554bd8317ba55009332`
+
+Após editar qualquer `.env.local`, **reinicie o servidor** (Next lê env só no boot).
+
+---
+
+## 7. Snippets do widget (tema Nuvemshop → produto.tpl)
+
+Um único `<script>` cuida de todos os blocos. Cole os `<div>` onde quiser:
+
+```html
+<!-- Avaliações (lista completa) -->
+<div data-avaliacoes data-product-id="{{ product.id }}"></div>
+
+<!-- Mini-resumo (estrelas + link), perto do preço -->
+<div data-avaliacoes-summary data-product-id="{{ product.id }}"></div>
+
+<!-- Card "Compre no kit" (nas páginas dos produtos que compõem kits) -->
+<div data-avaliacoes-kit data-product-id="{{ product.id }}"></div>
+
+<!-- Lista "Produtos do kit" (na página do produto-kit) -->
+<div data-avaliacoes-kit-items data-product-id="{{ product.id }}"></div>
+
+<!-- Uma vez só, no fim -->
+<script src="https://app.mesafy.shop/widget/avaliacoes-widget.js"
+        data-store-key="198dc71dd35e4554bd8317ba55009332" async></script>
+```
+
+---
+
+## 8. Pega-ratões (erros já resolvidos — não repetir)
+
+- **`.env.local` por app**, não `.env.example` (esse é só template). Next/Vite leem no boot → reiniciar.
+- **Copiar chaves do chat mascara com `•`** (bullets unicode) e quebra headers HTTP
+  ("non ISO-8859-1"). Colar do painel do Supabase, não do chat.
+- **Supabase free pausa** o projeto após ~7 dias sem uso → "Failed to fetch". Restaurar no dashboard.
+- **Supabase Auth URL:** Site URL e Redirect URLs precisam apontar pra `https://app.mesafy.shop`
+  (senão o magic-link cai em localhost).
+- **Relações do Supabase vêm como array** mesmo em 1:1 → usar `pickOne` (`apps/admin/src/lib/pick-one.ts`).
+- **Nuvemshop `PUT /products` rejeita o campo `images` (422)** "images must not be present".
+  Imagens só no `POST` de criação ou via sub-recurso `/products/{id}/images` (ver `replaceProductImages`).
+  Na edição, galeria só é re-enviada se mudou.
+- **Widget:** `process is not defined` no browser → `define` no `vite.config.ts` substitui `process.env`.
+- **Middleware** deve excluir `/widget` (bundle é público) — senão redireciona pra /login.
+- **Callbacks** (OAuth/auth) usam `NEXT_PUBLIC_APP_URL`, não `req.url` (atrás do proxy vira localhost:3002).
+- **Porta 3002** (3000/3001/3010 ocupadas). `apps/admin/package.json` "start" = `next start` (sem `-p`);
+  a porta vem do `ecosystem.config.cjs` (env PORT).
+- **Bundle do widget é gitignored** (regenerado no build). Não commitar `public/widget/*.js`.
+- **Import grande travava** → matching pré-computa bigramas do catálogo uma vez + processa em chunks + paginação.
+
+---
+
+## 9. Pendências / próximos passos
+
+- **Fase 5 dos kits — sync de estoque via webhook:** quando um kit é vendido, baixar o
+  estoque dos itens; quando um item é vendido, recalcular o estoque do kit. (Decidido:
+  tempo real via webhook. Ainda não implementado.)
+- **Configurar envio:** preencher `RESEND_*` e `WHATSAPP_*` no `.env.local` do VPS
+  (sem isso, e-mail/WhatsApp não saem). Webhooks já são registrados automaticamente ao
+  conectar a loja; há também `/api/nuvemshop/register-webhooks` pra re-registrar.
+- **Cron do Linux** chamando `/api/cron/send-requests` a cada 30min com header `x-cron-secret`
+  (o `vercel.json` só vale na Vercel; no VPS usar crontab — ver `deploy/README.md` passo 7).
+- **Kits antigos** (criados antes de peso/dimensões) precisam ser re-salvos ou re-sincronizados
+  (botão "↻" na lista) pra ganhar peso/dimensão.
+- **Rotacionar segredos** antes de expor mais (service_role do Supabase e client_secret da
+  Nuvemshop apareceram no histórico de desenvolvimento).
+
+---
+
+## 10. Endpoints da API (referência rápida)
+
+Admin (autenticados via Supabase Auth):
+`/api/reviews/[id]` (PATCH moderar), `/api/reviews/[id]/reply`, `/api/settings`,
+`/api/products/list|count|export|details`, `/api/import/reviews|template`,
+`/api/kits` (GET/POST), `/api/kits/[id]` (GET/PUT/DELETE), `/api/kits/[id]/sync`,
+`/api/kits/[id]/duplicate`, `/api/kits/upload-image`,
+`/api/automations/run` (POST — dispara o cron manualmente; config das automações é salva via `/api/settings`),
+`/api/nuvemshop/connect-manual|callback|disconnect|sync-products`,
+`/api/nuvemshop/register-webhooks`, `/api/nuvemshop/check-automation-access`.
+
+Públicos (validados por `api_key`, com CORS):
+`/api/widget/submit` (POST review + mídia), `/api/widget/stats` (batch),
+`/api/widget/kits` (batch), `/api/widget/kit-contents`.
+
+Webhook/cron: `/api/nuvemshop/webhook`, `/api/cron/send-requests`.
+Estáticos servidos pelo Next: `/widget/avaliacoes-widget.js`, `/preview/frame` (preview do widget).

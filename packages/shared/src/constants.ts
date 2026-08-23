@@ -30,3 +30,18 @@ Conta pra gente o que achou? Leva só 1 minutinho:
 {{link}}
 
 Obrigado! 💛`;
+
+export const DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE = `Oi {{nome}}! 👋
+
+Vimos que você deixou *{{produtos}}* no carrinho da {{loja}}.
+
+Seu carrinho ainda está disponível. Para continuar a compra, acesse:
+{{link}}
+
+Se precisar de ajuda, é só responder esta mensagem. 💛`;
+
+export const DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE = `Oi {{nome}}! 💛
+
+Recebemos seu pedido *#{{pedido}}* na {{loja}} com: {{produtos}}.
+
+Estamos preparando tudo com carinho. Se precisar falar com a gente, é só responder esta mensagem.`;

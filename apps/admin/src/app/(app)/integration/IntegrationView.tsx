@@ -18,7 +18,11 @@ export function IntegrationView({
   store: Store | null;
   installUrl: string | null;
 }) {
-  return store ? <Connected store={store} /> : <Connect installUrl={installUrl} />;
+  return store ? (
+    <Connected store={store} installUrl={installUrl} />
+  ) : (
+    <Connect installUrl={installUrl} />
+  );
 }
 
 function Connect({ installUrl }: { installUrl: string | null }) {
@@ -173,7 +177,13 @@ function Input({
   );
 }
 
-function Connected({ store }: { store: Store }) {
+function Connected({
+  store,
+  installUrl,
+}: {
+  store: Store;
+  installUrl: string | null;
+}) {
   const scriptTag = `<div data-avaliacoes data-product-id="{{ product.id }}"></div>
 <script
   src="${typeof window !== "undefined" ? window.location.origin : ""}/widget/avaliacoes-widget.js"
@@ -212,6 +222,8 @@ function Connected({ store }: { store: Store }) {
 
       <SyncSection />
 
+      <WebhookSection installUrl={installUrl} />
+
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="font-semibold mb-3">Zona de risco</h2>
         <button
@@ -225,6 +237,78 @@ function Connected({ store }: { store: Store }) {
           Desconectar loja
         </button>
       </div>
+    </div>
+  );
+}
+
+function WebhookSection({ installUrl }: { installUrl: string | null }) {
+  const [state, setState] = useState<"idle" | "saving" | "done" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [access, setAccess] = useState<"checking" | "ok" | "missing">("checking");
+
+  useEffect(() => {
+    fetch("/api/nuvemshop/check-automation-access")
+      .then((res) => {
+        setAccess(res.ok ? "ok" : "missing");
+      })
+      .catch(() => setAccess("missing"));
+  }, []);
+
+  async function register() {
+    setState("saving");
+    setError(null);
+    const res = await fetch("/api/nuvemshop/register-webhooks", { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(json.error || "Não foi possível registrar os webhooks");
+      setState("error");
+      return;
+    }
+    setState("done");
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="font-semibold mb-1">Automações de pedidos</h2>
+      <p className="text-sm text-gray-600 mb-4">
+        Registre os eventos de pedido para cancelar carrinhos recuperados e agendar
+        mensagens de pós-venda automaticamente.
+      </p>
+      {access === "checking" && (
+        <p className="text-sm text-gray-500 mb-4">Verificando permissões...</p>
+      )}
+      {access === "ok" && (
+        <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+          ✓ A permissão <code>read_orders</code> está ativa.
+        </p>
+      )}
+      {access === "missing" && (
+        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+          <p>
+            Adicione a permissão <code>read_orders</code> no aplicativo Nuvemshop e
+            atualize a autorização antes de ativar estas automações.
+          </p>
+          {installUrl && (
+            <a href={installUrl} className="inline-block underline font-medium mt-2">
+              Atualizar autorização da loja
+            </a>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          type="button"
+          onClick={register}
+          disabled={state === "saving" || access !== "ok"}
+          className="bg-brand-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+        >
+          {state === "saving" ? "Registrando..." : "Registrar webhooks"}
+        </button>
+        {state === "done" && (
+          <span className="text-sm text-green-700">✓ Webhooks registrados</span>
+        )}
+      </div>
+      {error && <p className="text-sm text-red-700 mt-3">{error}</p>}
     </div>
   );
 }
