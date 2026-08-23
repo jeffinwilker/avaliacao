@@ -5,21 +5,51 @@ import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
+import { AppIcon, type AppIconName } from "@/components/AppIcon";
 
-const items = [
-  { href: "/dashboard", label: "Dashboard", icon: "📊" },
-  { href: "/reviews", label: "Avaliações", icon: "⭐" },
-  { href: "/kits", label: "Kits", icon: "🎁" },
-  { href: "/products", label: "Produtos", icon: "🛍️" },
-  { href: "/import", label: "Importar", icon: "📥" },
-  { href: "/automations", label: "Rotinas", icon: "📲" },
-  { href: "/automations/orders", label: "Pedidos e envios", icon: "🧾" },
-  { href: "/preview", label: "Preview do widget", icon: "👁️" },
-  { href: "/settings", label: "Configurações", icon: "⚙️" },
-  { href: "/integration", label: "Integração", icon: "🔌" },
+const groups: Array<{
+  label: string;
+  items: Array<{ href: string; label: string; icon: AppIconName; exact?: boolean }>;
+}> = [
+  {
+    label: "Painel",
+    items: [{ href: "/dashboard", label: "Visão geral", icon: "dashboard" }],
+  },
+  {
+    label: "Gestão",
+    items: [
+      { href: "/reviews", label: "Avaliações", icon: "star" },
+      { href: "/kits", label: "Kits", icon: "gift" },
+      { href: "/products", label: "Produtos", icon: "package" },
+      { href: "/import", label: "Importar", icon: "download" },
+    ],
+  },
+  {
+    label: "Automações",
+    items: [
+      { href: "/automations", label: "Rotinas", icon: "workflow", exact: true },
+      { href: "/automations/orders", label: "Pedidos e envios", icon: "receipt" },
+    ],
+  },
+  {
+    label: "Loja",
+    items: [
+      { href: "/preview", label: "Preview do widget", icon: "eye" },
+      { href: "/settings", label: "Configurações", icon: "settings" },
+      { href: "/integration", label: "Integração", icon: "plug" },
+    ],
+  },
 ];
 
-export function Sidebar({ userEmail }: { userEmail: string | null }) {
+export function Sidebar({
+  userEmail,
+  mobileOpen = false,
+  onClose,
+}: {
+  userEmail: string | null;
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -30,44 +60,83 @@ export function Sidebar({ userEmail }: { userEmail: string | null }) {
   }
 
   return (
-    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-      <div className="px-6 py-5 border-b border-gray-200">
-        <h1 className="font-bold text-lg">Avaliações</h1>
-        <p className="text-xs text-gray-500 mt-0.5">painel da loja</p>
+    <aside
+      className={clsx(
+        "fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[#dfdedb] bg-[#f1f0ee] transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
+        mobileOpen ? "translate-x-0" : "-translate-x-full"
+      )}
+    >
+      <div className="flex h-16 items-center gap-3 border-b border-[#dfdedb] px-4">
+        <div className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-950 text-white shadow-sm">
+          <AppIcon name="star" size={18} />
+        </div>
+        <div className="min-w-0">
+          <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-950">
+            Avaliações
+          </h1>
+          <p className="truncate text-[11px] text-zinc-500">Avaliações & Kits</p>
+        </div>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
-        {items.map((it) => {
-          const active =
-            it.href === "/automations"
-              ? pathname === it.href
-              : pathname.startsWith(it.href);
-          return (
-            <Link
-              key={it.href}
-              href={it.href}
-              className={clsx(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm",
-                active
-                  ? "bg-brand-900 text-white"
-                  : "text-gray-700 hover:bg-gray-100"
-              )}
-            >
-              <span>{it.icon}</span>
-              <span>{it.label}</span>
-            </Link>
-          );
-        })}
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+        {groups.map((group) => (
+          <div key={group.label}>
+            <div className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+              {group.label}
+            </div>
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const active = item.exact
+                  ? pathname === item.href
+                  : pathname.startsWith(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onClose}
+                    className={clsx(
+                      "group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition",
+                      active
+                        ? "border border-zinc-200/80 bg-white text-zinc-950 shadow-sm"
+                        : "border border-transparent text-zinc-600 hover:bg-white/70 hover:text-zinc-950"
+                    )}
+                  >
+                    <AppIcon
+                      name={item.icon}
+                      size={17}
+                      className={active ? "text-zinc-950" : "text-zinc-500"}
+                    />
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {active && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-zinc-950" />
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
-      <div className="p-3 border-t border-gray-200">
-        <div className="text-xs text-gray-500 px-3 mb-2 truncate" title={userEmail ?? ""}>
-          {userEmail}
+      <div className="border-t border-[#dfdedb] p-3">
+        <div className="mb-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-zinc-100 text-zinc-700">
+              <AppIcon name="user" size={15} />
+            </span>
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-zinc-800">Conta da loja</div>
+              <div className="truncate text-[11px] text-zinc-500" title={userEmail ?? ""}>
+                {userEmail}
+              </div>
+            </div>
+          </div>
         </div>
         <button
           onClick={logout}
-          className="w-full text-left text-sm text-gray-700 hover:bg-gray-100 px-3 py-2 rounded-lg"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-medium text-zinc-600 hover:bg-white hover:text-zinc-950"
         >
+          <AppIcon name="logout" size={16} />
           Sair
         </button>
       </div>
