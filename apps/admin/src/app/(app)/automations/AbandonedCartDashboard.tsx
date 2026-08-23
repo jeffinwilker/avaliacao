@@ -60,11 +60,13 @@ export function AbandonedCartDashboard({
   initialEnabled,
   initialSteps,
   carts,
+  mode = "all",
 }: {
   storeId: string;
   initialEnabled: boolean;
   initialSteps: AbandonedCartMessageStep[];
   carts: AbandonedCartView[];
+  mode?: "all" | "routine" | "orders";
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState(initialEnabled);
@@ -74,6 +76,8 @@ export function AbandonedCartDashboard({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [expandedCart, setExpandedCart] = useState<string | null>(null);
+  const showRoutine = mode !== "orders";
+  const showOrders = mode !== "routine";
 
   const filteredCarts = useMemo(() => {
     const search = query.trim().toLocaleLowerCase("pt-BR");
@@ -158,14 +162,14 @@ export function AbandonedCartDashboard({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      {showOrders && <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <SummaryCard label="Carrinhos em aberto" value={counts.abandoned} tone="amber" />
         <SummaryCard label="Compras recuperadas" value={counts.recovered} tone="green" />
         <SummaryCard label="Mensagens agendadas" value={counts.scheduled} tone="blue" />
         <SummaryCard label="Mensagens enviadas" value={counts.sent} tone="neutral" />
-      </div>
+      </div>}
 
-      <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      {showRoutine && <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-2">
@@ -271,9 +275,9 @@ export function AbandonedCartDashboard({
             </div>
           </div>
         </div>
-      </section>
+      </section>}
 
-      <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      {showOrders && <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
@@ -342,7 +346,7 @@ export function AbandonedCartDashboard({
               : "Nenhum carrinho abandonado sincronizado ainda."}
           </div>
         )}
-      </section>
+      </section>}
     </div>
   );
 }

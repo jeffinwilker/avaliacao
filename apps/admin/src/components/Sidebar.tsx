@@ -12,7 +12,8 @@ const items = [
   { href: "/kits", label: "Kits", icon: "🎁" },
   { href: "/products", label: "Produtos", icon: "🛍️" },
   { href: "/import", label: "Importar", icon: "📥" },
-  { href: "/automations", label: "Automações", icon: "📲" },
+  { href: "/automations", label: "Rotinas", icon: "📲" },
+  { href: "/automations/orders", label: "Pedidos e envios", icon: "🧾" },
   { href: "/preview", label: "Preview do widget", icon: "👁️" },
   { href: "/settings", label: "Configurações", icon: "⚙️" },
   { href: "/integration", label: "Integração", icon: "🔌" },
@@ -37,7 +38,10 @@ export function Sidebar({ userEmail }: { userEmail: string | null }) {
 
       <nav className="flex-1 p-3 space-y-1">
         {items.map((it) => {
-          const active = pathname.startsWith(it.href);
+          const active =
+            it.href === "/automations"
+              ? pathname === it.href
+              : pathname.startsWith(it.href);
           return (
             <Link
               key={it.href}
