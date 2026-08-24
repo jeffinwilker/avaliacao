@@ -27,8 +27,16 @@ const groups: Array<{
   {
     label: "Automações",
     items: [
-      { href: "/automations", label: "Rotinas", icon: "workflow", exact: true },
-      { href: "/automations/orders", label: "Pedidos e envios", icon: "receipt" },
+      {
+        href: "/automations/abandoned-carts",
+        label: "Carrinhos abandonados",
+        icon: "workflow",
+      },
+      {
+        href: "/automations/post-sale",
+        label: "Pós-venda",
+        icon: "receipt",
+      },
     ],
   },
   {

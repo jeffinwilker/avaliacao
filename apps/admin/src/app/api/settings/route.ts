@@ -80,6 +80,16 @@ export async function PUT(req: NextRequest) {
         .eq("status", "scheduled")
     );
   }
+  if (body.whatsapp_enabled === false) {
+    cancellations.push(
+      admin
+        .from("review_requests")
+        .update({ status: "cancelled", error_message: "Automação desativada" })
+        .eq("store_id", body.store_id)
+        .eq("channel", "whatsapp")
+        .eq("status", "scheduled")
+    );
+  }
   await Promise.all(cancellations);
 
   return NextResponse.json({ ok: true });

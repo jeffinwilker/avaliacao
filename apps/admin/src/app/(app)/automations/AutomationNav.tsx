@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const tabs = [
-  { href: "/automations", label: "Rotinas" },
-  { href: "/automations/orders", label: "Pedidos e envios" },
+  { href: "/automations/abandoned-carts", label: "Carrinhos abandonados" },
+  { href: "/automations/post-sale", label: "Pós-venda" },
 ];
 
 export function AutomationNav() {

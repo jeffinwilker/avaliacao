@@ -105,7 +105,7 @@ export function SettingsForm({
         )}
       </Section>
 
-      <Section title="Solicitação de avaliação (pós-venda)">
+      <Section title="Solicitação de avaliação por e-mail">
         <Field label="Dias após o pedido para pedir avaliação">
           <input
             type="number"
@@ -147,80 +147,32 @@ export function SettingsForm({
           </>
         )}
 
-        <Toggle
-          label="Enviar por WhatsApp"
-          value={s.whatsapp_enabled}
-          onChange={(v) => setS({ ...s, whatsapp_enabled: v })}
-        />
-        {s.whatsapp_enabled && (
-          <Field
-            label="Mensagem de WhatsApp"
-            hint="Variáveis: {{nome}}, {{produto}}, {{link}}, {{loja}}"
+      </Section>
+
+      <Section title="Automações de WhatsApp">
+        <p className="text-sm text-gray-600">
+          As mensagens, horários e listas de envios agora ficam em páginas separadas.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <a
+            href="/automations/abandoned-carts"
+            className="rounded-xl border border-gray-200 bg-gray-50 p-4 transition hover:border-gray-400 hover:bg-white"
           >
-            <textarea
-              value={s.whatsapp_template ?? ""}
-              onChange={(e) =>
-                setS({ ...s, whatsapp_template: e.target.value })
-              }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[120px] font-mono"
-            />
-          </Field>
-        )}
-      </Section>
-
-      <Section title="Recuperação de carrinho abandonado">
-        <Toggle
-          label="Enviar recuperação por WhatsApp"
-          hint="Ative somente para clientes que autorizaram contato pelo WhatsApp. A Nuvemshop pode levar até 6 horas para disponibilizar o carrinho."
-          value={s.abandoned_cart_enabled}
-          onChange={(value) => setS({ ...s, abandoned_cart_enabled: value })}
-        />
-        {s.abandoned_cart_enabled && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-            Os horários e textos de cada tentativa agora ficam na tela de{" "}
-            <a href="/automations" className="font-semibold underline">
-              Automações
-            </a>
-            , junto com a lista dos carrinhos.
-          </div>
-        )}
-      </Section>
-
-      <Section title="Mensagem automática após a compra">
-        <Toggle
-          label="Enviar pós-venda por WhatsApp"
-          hint="Dispara uma mensagem por pedido pago, separada do pedido de avaliação."
-          value={s.post_purchase_enabled}
-          onChange={(value) => setS({ ...s, post_purchase_enabled: value })}
-        />
-        {s.post_purchase_enabled && (
-          <>
-            <Field label="Horas após a confirmação do pagamento">
-              <input
-                type="number"
-                min={0}
-                max={720}
-                value={s.post_purchase_delay_hours}
-                onChange={(e) =>
-                  setS({ ...s, post_purchase_delay_hours: Number(e.target.value) })
-                }
-                className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              />
-            </Field>
-            <Field
-              label="Mensagem de pós-venda"
-              hint="Variáveis: {{nome}}, {{pedido}}, {{produtos}}, {{loja}}, {{link}}"
-            >
-              <textarea
-                value={s.post_purchase_whatsapp_template ?? ""}
-                onChange={(e) =>
-                  setS({ ...s, post_purchase_whatsapp_template: e.target.value })
-                }
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[140px] font-mono"
-              />
-            </Field>
-          </>
-        )}
+            <div className="font-semibold text-gray-900">Carrinhos abandonados</div>
+            <div className="mt-1 text-sm text-gray-500">
+              Sequência de recuperação e lista de carrinhos.
+            </div>
+          </a>
+          <a
+            href="/automations/post-sale"
+            className="rounded-xl border border-gray-200 bg-gray-50 p-4 transition hover:border-gray-400 hover:bg-white"
+          >
+            <div className="font-semibold text-gray-900">Pós-venda</div>
+            <div className="mt-1 text-sm text-gray-500">
+              Mensagem da compra, pedido de avaliação e status dos envios.
+            </div>
+          </a>
+        </div>
       </Section>
 
       <Section title="Aparência do widget">

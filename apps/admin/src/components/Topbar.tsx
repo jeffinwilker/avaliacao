@@ -5,8 +5,17 @@ import { AppIcon } from "@/components/AppIcon";
 
 const sectionTitles = [
   { path: "/account/password", title: "Definir nova senha", group: "Conta" },
-  { path: "/automations/orders", title: "Pedidos e envios", group: "Automações" },
-  { path: "/automations", title: "Rotinas", group: "Automações" },
+  {
+    path: "/automations/abandoned-carts",
+    title: "Carrinhos abandonados",
+    group: "Automações",
+  },
+  {
+    path: "/automations/post-sale",
+    title: "Pós-venda",
+    group: "Automações",
+  },
+  { path: "/automations", title: "Automações", group: "Automações" },
   { path: "/reviews", title: "Avaliações", group: "Gestão" },
   { path: "/kits", title: "Kits de produtos", group: "Gestão" },
   { path: "/products", title: "Produtos", group: "Gestão" },
