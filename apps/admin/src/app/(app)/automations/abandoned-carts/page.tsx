@@ -57,7 +57,7 @@ export default async function AbandonedCartsPage({
       .from("automation_messages")
       .select(
         `id, external_reference, routine_step_key, sequence_step, status,
-         scheduled_for, sent_at, error_message, attachment_url`
+         scheduled_for, sent_at, error_message, attachment_url, coupon_code`
       )
       .eq("store_id", store.id)
       .eq("automation_type", "abandoned_cart")
@@ -65,7 +65,7 @@ export default async function AbandonedCartsPage({
     listAutomationMedia(admin, store.id),
   ]);
 
-  if (settingsResult.error || cartsResult.error) {
+  if (settingsResult.error || cartsResult.error || messagesResult.error) {
     return <MigrationNotice />;
   }
 
@@ -82,6 +82,11 @@ export default async function AbandonedCartsPage({
     enabled: step.enabled,
     attachmentType: step.attachment_type,
     attachmentUrl: step.attachment_url,
+    couponEnabled: step.coupon_enabled,
+    couponType: step.coupon_type,
+    couponValue: step.coupon_value,
+    couponValidHours: step.coupon_valid_hours,
+    couponMinPrice: step.coupon_min_price,
   }));
 
   const messagesByCheckout = new Map<string, CartMessageView[]>();
@@ -96,6 +101,7 @@ export default async function AbandonedCartsPage({
       sentAt: message.sent_at,
       errorMessage: message.error_message,
       attachmentUrl: message.attachment_url,
+      couponCode: message.coupon_code,
     });
     messagesByCheckout.set(message.external_reference, list);
   }
@@ -195,8 +201,10 @@ function MigrationNotice() {
     <div className="p-8">
       <h1 className="text-2xl font-bold">Carrinhos abandonados</h1>
       <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">
-        A estrutura de carrinhos ainda não está disponível no banco. Execute a
-        migration <code className="font-mono">0007_abandoned_cart_routines.sql</code>{" "}
+        A estrutura de carrinhos ainda não está disponível no banco. Execute as
+        migrations <code className="font-mono">0007_abandoned_cart_routines.sql</code>,{" "}
+        <code className="font-mono">0010_automation_attachments.sql</code> e{" "}
+        <code className="font-mono">0011_abandoned_cart_coupons.sql</code>{" "}
         no Supabase e atualize esta página.
       </div>
     </div>

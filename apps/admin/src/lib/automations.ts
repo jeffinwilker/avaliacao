@@ -3,9 +3,13 @@ import {
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
   DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
   type AbandonedCartMessageStep,
+  type AbandonedCartCouponType,
   type AutomationAttachmentType,
 } from "@avaliacoes/shared";
-import { fetchAllAbandonedCheckouts } from "@/lib/nuvemshop";
+import {
+  ensureAbandonedCheckoutCoupon,
+  fetchAllAbandonedCheckouts,
+} from "@/lib/nuvemshop";
 import { sendWhatsApp } from "@/lib/providers/whatsapp";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -39,6 +43,9 @@ interface AutomationJob {
   routine_step_key: string;
   sequence_step: number;
   attachment_url: string | null;
+  coupon_id: number | null;
+  coupon_code: string | null;
+  coupon_applied_at: string | null;
 }
 
 export interface StoredAbandonedCartStep {
@@ -49,6 +56,11 @@ export interface StoredAbandonedCartStep {
   active_since: string | null;
   attachment_type: AutomationAttachmentType;
   attachment_url: string | null;
+  coupon_enabled: boolean;
+  coupon_type: AbandonedCartCouponType;
+  coupon_value: number;
+  coupon_valid_hours: number;
+  coupon_min_price: number | null;
 }
 
 interface ExistingAutomationMessage {
@@ -410,7 +422,10 @@ export async function sendScheduledAutomationMessages(
 
   const storeIds = [...new Set(claimedJobs.map((job) => job.store_id))];
   const [{ data: stores }, { data: settings }] = await Promise.all([
-    admin.from("stores").select("id, name").in("id", storeIds),
+    admin
+      .from("stores")
+      .select("id, name, external_store_id, access_token")
+      .in("id", storeIds),
     admin
       .from("store_settings")
       .select(
@@ -462,15 +477,56 @@ export async function sendScheduledAutomationMessages(
         : config.post_purchase_whatsapp_template ||
           DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE;
 
-    const message = replaceTemplate(template, {
-      "{{nome}}": firstName(job.customer_name),
-      "{{produtos}}": job.products_summary,
-      "{{link}}": job.link || "",
-      "{{loja}}": store.name,
-      "{{pedido}}": job.reference_label || job.external_reference,
-    });
-
     try {
+      let couponCode =
+        type === "abandoned_cart" && abandonedStep?.coupon_enabled
+          ? job.coupon_code || ""
+          : "";
+      if (type === "abandoned_cart" && abandonedStep?.coupon_enabled) {
+        if (!store.access_token) {
+          throw new Error("Conexão com a Nuvemshop ausente para criar o cupom");
+        }
+        if (!couponCode || !job.coupon_applied_at) {
+          const coupon = await ensureAbandonedCheckoutCoupon(
+            store.external_store_id,
+            store.access_token,
+            job.external_reference,
+            {
+              code: automaticCouponCode(job.id),
+              type: abandonedStep.coupon_type,
+              value: abandonedStep.coupon_value,
+              validHours: abandonedStep.coupon_valid_hours,
+              minPrice: abandonedStep.coupon_min_price,
+            }
+          );
+          couponCode = coupon.code;
+          await admin
+            .from("automation_messages")
+            .update({
+              coupon_id: coupon.id,
+              coupon_code: coupon.code,
+              coupon_applied_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+        }
+      }
+
+      const couponTemplate =
+        couponCode && !template.includes("{{cupom}}")
+          ? `${template}\n\nUse o cupom *{{cupom}}* no seu carrinho.`
+          : template;
+      const message = replaceTemplate(couponTemplate, {
+        "{{nome}}": firstName(job.customer_name),
+        "{{produtos}}": job.products_summary,
+        "{{link}}": job.link || "",
+        "{{loja}}": store.name,
+        "{{pedido}}": job.reference_label || job.external_reference,
+        "{{cupom}}": couponCode,
+        "{{desconto}}": abandonedStep
+          ? couponDiscountLabel(abandonedStep)
+          : "",
+      });
+
       await sendWhatsApp({
         phone: job.customer_phone,
         message,
@@ -543,12 +599,43 @@ export function parseAbandonedCartSequence(
       typeof rawAttachmentUrl === "string" && /^https:\/\//i.test(rawAttachmentUrl)
         ? rawAttachmentUrl
         : null;
+    const couponEnabled =
+      candidate.coupon_enabled === true || candidate.couponEnabled === true;
+    const couponType: AbandonedCartCouponType =
+      candidate.coupon_type === "absolute" || candidate.couponType === "absolute"
+        ? "absolute"
+        : candidate.coupon_type === "shipping" || candidate.couponType === "shipping"
+          ? "shipping"
+          : "percentage";
+    const couponValue = Number(
+      candidate.coupon_value ?? candidate.couponValue ?? 10
+    );
+    const couponValidHours = Number(
+      candidate.coupon_valid_hours ?? candidate.couponValidHours ?? 48
+    );
+    const rawCouponMinPrice =
+      candidate.coupon_min_price ?? candidate.couponMinPrice;
+    const couponMinPrice =
+      rawCouponMinPrice == null || rawCouponMinPrice === ""
+        ? null
+        : Number(rawCouponMinPrice);
     if (
       !Number.isFinite(delayMinutes) ||
       delayMinutes < 10 ||
       delayMinutes > 43_200 ||
       !template
-      || (attachmentType === "library" && !attachmentUrl)
+      || (attachmentType === "library" && !attachmentUrl) ||
+      (couponEnabled && couponType !== "shipping" && (
+        !Number.isFinite(couponValue) || couponValue <= 0 ||
+        (couponType === "percentage" && couponValue > 100)
+      )) ||
+      (couponEnabled && (
+        !Number.isFinite(couponValidHours) ||
+        couponValidHours < 1 || couponValidHours > 720
+      )) ||
+      (couponMinPrice != null && (
+        !Number.isFinite(couponMinPrice) || couponMinPrice < 0
+      ))
     ) {
       return [];
     }
@@ -560,6 +647,11 @@ export function parseAbandonedCartSequence(
       enabled: candidate.enabled !== false,
       attachment_type: attachmentType,
       attachment_url: attachmentType === "library" ? attachmentUrl : null,
+      coupon_enabled: couponEnabled,
+      coupon_type: couponType,
+      coupon_value: couponType === "shipping" ? 0 : couponValue,
+      coupon_valid_hours: Math.round(couponValidHours),
+      coupon_min_price: couponMinPrice,
       active_since:
         typeof candidate.active_since === "string"
           ? candidate.active_since
@@ -586,6 +678,11 @@ export function parseAbandonedCartSequence(
     enabled: true,
     attachment_type: fallback.attachmentType,
     attachment_url: fallback.attachmentUrl,
+    coupon_enabled: fallback.couponEnabled,
+    coupon_type: fallback.couponType,
+    coupon_value: fallback.couponValue,
+    coupon_valid_hours: fallback.couponValidHours,
+    coupon_min_price: fallback.couponMinPrice,
     active_since: null,
   }];
 }
@@ -635,4 +732,24 @@ function resolveCartAttachmentUrl(
     return products.find((product) => product.image?.src)?.image?.src || null;
   }
   return null;
+}
+
+function automaticCouponCode(jobId: string): string {
+  return `MESA${jobId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}`.toUpperCase();
+}
+
+function couponDiscountLabel(step: StoredAbandonedCartStep): string {
+  if (!step.coupon_enabled) return "";
+  if (step.coupon_type === "shipping") return "frete grátis";
+  if (step.coupon_type === "percentage") {
+    return `${formatNumber(step.coupon_value)}% de desconto`;
+  }
+  return `${new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(step.coupon_value)} de desconto`;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
 }

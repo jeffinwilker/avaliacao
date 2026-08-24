@@ -52,9 +52,9 @@ O bundle do widget fica em `apps/widget/dist/avaliacoes-widget.js` — esse arqu
 
 ## Integração na Nuvemshop
 
-Para automações de carrinho abandonado e pós-venda, o aplicativo precisa da
-permissão `read_orders`, dos webhooks de pedido registrados e do cron configurado
-conforme `deploy/README.md`.
+Para automações de carrinho abandonado e pós-venda, o aplicativo precisa das
+permissões `read_orders`, `write_orders`, `read_coupons` e `write_coupons`, dos
+webhooks de pedido registrados e do cron configurado conforme `deploy/README.md`.
 
 As telas de automação separam **Pedidos e envios**, **Mensagens** e **Rotinas**,
 sempre com abas para carrinho abandonado e pós-venda. A recuperação armazena os
@@ -62,11 +62,14 @@ carrinhos identificados dos últimos 30 dias e permite montar uma rotina com at�
 cinco mensagens de WhatsApp, com atrasos a partir de 10 minutos. O editor de rotinas
 mostra o fluxo visualmente como gatilho, espera e mensagem. Cada mensagem pode sair
 sem anexo, com a imagem do produto ou com uma imagem fixa enviada para a biblioteca.
+Uma etapa também pode criar um cupom exclusivo de uso único, aplicá-lo ao checkout
+abandonado e inserir o código na mensagem com `{{cupom}}`.
 Ao ativar a rotina ou alterar o tempo de uma etapa, o novo prazo passa a valer
 para carrinhos criados depois da alteração, evitando disparos retroativos em massa.
 Os atrasos podem ser informados em minutos, horas ou dias. Para usar essa versão,
 execute também as migrations `0007_abandoned_cart_routines.sql` e
-`0009_flexible_post_sale_delays.sql` e `0010_automation_attachments.sql`.
+`0009_flexible_post_sale_delays.sql`, `0010_automation_attachments.sql` e
+`0011_abandoned_cart_coupons.sql`.
 
 Cole no tema da loja (Configurações → HTML/CSS → produto.tpl):
 

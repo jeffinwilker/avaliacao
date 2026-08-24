@@ -70,6 +70,10 @@ export interface NuvemshopAbandonedCheckout {
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
+  coupon?: Array<{
+    id: number;
+    code: string;
+  }>;
   products: Array<{
     product_id: number;
     variant_id?: number;
@@ -78,6 +82,14 @@ export interface NuvemshopAbandonedCheckout {
     price?: string | null;
     image?: { src?: string | null } | null;
   }>;
+}
+
+export interface NuvemshopCoupon {
+  id: number;
+  code: string;
+  type: "percentage" | "absolute" | "shipping";
+  value?: string | number | null;
+  valid: boolean;
 }
 
 export interface NuvemshopCategory {
@@ -386,6 +398,129 @@ export async function checkAbandonedCheckoutAccess(
   } catch (error) {
     if ((error as Error).message.includes("API 404 GET /checkouts")) return;
     throw error;
+  }
+}
+
+export async function checkCouponAccess(
+  storeId: string,
+  token: string
+): Promise<void> {
+  await request<NuvemshopCoupon[]>("GET", storeId, token, "/coupons", {
+    params: { page: 1, per_page: 1, fields: "id,code" },
+  });
+}
+
+/**
+ * Garante um cupom exclusivo no checkout abandonado. Se o cliente já tiver
+ * aplicado outro cupom, preserva e devolve esse código em vez de substituí-lo.
+ */
+export async function ensureAbandonedCheckoutCoupon(
+  storeId: string,
+  token: string,
+  checkoutId: string | number,
+  input: {
+    code: string;
+    type: "percentage" | "absolute" | "shipping";
+    value: number;
+    validHours: number;
+    minPrice?: number | null;
+  }
+): Promise<NuvemshopCoupon> {
+  const checkout = await request<NuvemshopAbandonedCheckout>(
+    "GET",
+    storeId,
+    token,
+    `/checkouts/${checkoutId}`,
+    { params: { fields: "id,coupon" } }
+  );
+  const assigned = checkout.coupon?.find((coupon) => coupon.id && coupon.code);
+  if (assigned) {
+    return {
+      id: assigned.id,
+      code: assigned.code,
+      type: input.type,
+      valid: true,
+    };
+  }
+
+  const matches = await request<NuvemshopCoupon[]>(
+    "GET",
+    storeId,
+    token,
+    "/coupons",
+    { params: { q: input.code, per_page: 50 } }
+  );
+  let coupon = matches.find(
+    (candidate) => candidate.code.toUpperCase() === input.code.toUpperCase()
+  );
+
+  if (!coupon) {
+    const now = new Date();
+    const end = new Date(now.getTime() + input.validHours * 60 * 60 * 1000);
+    const body: Record<string, unknown> = {
+      code: input.code,
+      type: input.type,
+      valid: true,
+      max_uses: 1,
+      start_date: now.toISOString(),
+      end_date: end.toISOString(),
+      combines_with_other_discounts: true,
+    };
+    if (input.type !== "shipping") body.value = input.value.toFixed(2);
+    if (input.minPrice && input.minPrice > 0) body.min_price = input.minPrice;
+
+    try {
+      coupon = await request<NuvemshopCoupon>(
+        "POST",
+        storeId,
+        token,
+        "/coupons",
+        { body }
+      );
+    } catch (error) {
+      if (!(error as Error).message.includes("API 422 POST /coupons")) throw error;
+      const retried = await request<NuvemshopCoupon[]>(
+        "GET",
+        storeId,
+        token,
+        "/coupons",
+        { params: { q: input.code, per_page: 50 } }
+      );
+      coupon = retried.find(
+        (candidate) => candidate.code.toUpperCase() === input.code.toUpperCase()
+      );
+      if (!coupon) throw error;
+    }
+  }
+
+  try {
+    await request<NuvemshopAbandonedCheckout>(
+      "POST",
+      storeId,
+      token,
+      `/checkouts/${checkoutId}/coupon`,
+      { body: { coupon_id: coupon.id } }
+    );
+    return coupon;
+  } catch (error) {
+    if (!(error as Error).message.includes("already has an assigned coupon")) {
+      throw error;
+    }
+    const refreshed = await request<NuvemshopAbandonedCheckout>(
+      "GET",
+      storeId,
+      token,
+      `/checkouts/${checkoutId}`,
+      { params: { fields: "id,coupon" } }
+    );
+    const current = refreshed.coupon?.find((item) => item.id && item.code);
+    if (!current) throw error;
+    return {
+      id: current.id,
+      code: current.code,
+      type: input.type,
+      valid: true,
+    };
   }
 }
 

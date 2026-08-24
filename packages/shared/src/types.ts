@@ -10,6 +10,7 @@ export type Platform = (typeof PLATFORMS)[number];
 export type Channel = (typeof CHANNELS)[number];
 export type MediaType = (typeof MEDIA_TYPES)[number];
 export type AutomationAttachmentType = "none" | "product_image" | "library";
+export type AbandonedCartCouponType = "percentage" | "absolute" | "shipping";
 
 export interface AutomationMediaAsset {
   name: string;
@@ -60,6 +61,11 @@ export interface AbandonedCartMessageStep {
   enabled: boolean;
   attachmentType: AutomationAttachmentType;
   attachmentUrl: string | null;
+  couponEnabled: boolean;
+  couponType: AbandonedCartCouponType;
+  couponValue: number;
+  couponValidHours: number;
+  couponMinPrice: number | null;
 }
 
 export interface Product {

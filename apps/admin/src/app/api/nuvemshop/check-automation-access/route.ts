@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { checkAbandonedCheckoutAccess } from "@/lib/nuvemshop";
+import {
+  checkAbandonedCheckoutAccess,
+  checkCouponAccess,
+} from "@/lib/nuvemshop";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -20,20 +23,29 @@ export async function GET() {
     return NextResponse.json({ error: "Loja não conectada" }, { status: 400 });
   }
 
+  let readOrders = true;
+  let coupons = true;
+  let ordersError: string | null = null;
+  let couponsError: string | null = null;
+
   try {
     await checkAbandonedCheckoutAccess(store.external_store_id, store.access_token);
-    return NextResponse.json({ ok: true, read_orders: true });
   } catch (error) {
-    const message = (error as Error).message;
-    const missingScope = message.includes("403") || message.includes("read_orders");
-    return NextResponse.json(
-      {
-        error: missingScope
-          ? "Falta a permissão read_orders. Adicione-a no aplicativo Nuvemshop e reconecte a loja."
-          : message,
-        read_orders: false,
-      },
-      { status: missingScope ? 403 : 502 }
-    );
+    readOrders = false;
+    ordersError = (error as Error).message;
   }
+  try {
+    await checkCouponAccess(store.external_store_id, store.access_token);
+  } catch (error) {
+    coupons = false;
+    couponsError = (error as Error).message;
+  }
+
+  return NextResponse.json({
+    ok: readOrders && coupons,
+    read_orders: readOrders,
+    coupons,
+    orders_error: ordersError,
+    coupons_error: couponsError,
+  });
 }

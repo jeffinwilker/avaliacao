@@ -49,6 +49,11 @@ export const DEFAULT_ABANDONED_CART_SEQUENCE = [
     enabled: true,
     attachmentType: "none" as const,
     attachmentUrl: null,
+    couponEnabled: false,
+    couponType: "percentage" as const,
+    couponValue: 10,
+    couponValidHours: 48,
+    couponMinPrice: null,
   },
 ];
 

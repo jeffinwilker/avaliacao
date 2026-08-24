@@ -26,6 +26,7 @@ export interface CartMessageView {
   sentAt: string | null;
   errorMessage: string | null;
   attachmentUrl: string | null;
+  couponCode: string | null;
 }
 
 export interface AbandonedCartView {
@@ -141,6 +142,11 @@ export function AbandonedCartDashboard({
         enabled: true,
         attachmentType: "none",
         attachmentUrl: null,
+        couponEnabled: false,
+        couponType: "percentage",
+        couponValue: 10,
+        couponValidHours: 48,
+        couponMinPrice: null,
       },
     ]);
     setFeedback(null);
@@ -179,6 +185,15 @@ export function AbandonedCartDashboard({
             : "none",
         attachmentUrl:
           typeof step.attachment_url === "string" ? step.attachment_url : null,
+        couponEnabled: step.coupon_enabled === true,
+        couponType:
+          step.coupon_type === "absolute" || step.coupon_type === "shipping"
+            ? step.coupon_type
+            : "percentage",
+        couponValue: Number(step.coupon_value ?? 10),
+        couponValidHours: Number(step.coupon_valid_hours ?? 48),
+        couponMinPrice:
+          step.coupon_min_price == null ? null : Number(step.coupon_min_price),
       }))
     );
     setFeedback({
@@ -266,7 +281,7 @@ export function AbandonedCartDashboard({
                 />
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap gap-2">
-                    {["{{nome}}", "{{produtos}}", "{{link}}", "{{loja}}"].map((variable) => (
+                    {["{{nome}}", "{{produtos}}", "{{link}}", "{{loja}}", "{{cupom}}", "{{desconto}}"].map((variable) => (
                       <button
                         type="button"
                         key={variable}
@@ -279,6 +294,20 @@ export function AbandonedCartDashboard({
                   </div>
                   <span className="text-xs text-gray-400">{step.messageTemplate.length}/4000</span>
                 </div>
+                <CouponSettings
+                  step={step}
+                  onChange={(patch) => {
+                    const nextPatch = { ...patch };
+                    if (
+                      patch.couponEnabled === true &&
+                      !step.couponEnabled &&
+                      !step.messageTemplate.includes("{{cupom}}")
+                    ) {
+                      nextPatch.messageTemplate = `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* e aproveite {{desconto}}. O desconto já estará aplicado ao seu carrinho.`;
+                    }
+                    updateStep(step.id, nextPatch);
+                  }}
+                />
                 <AutomationAttachmentPicker
                   storeId={storeId}
                   attachmentType={step.attachmentType}
@@ -477,6 +506,11 @@ function AbandonedFlowBuilder({
                       <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
                         {attachmentLabel(step.attachmentType)}
                       </span>
+                      {step.couponEnabled && (
+                        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs text-amber-800">
+                          {couponStepLabel(step)}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <Link
@@ -585,6 +619,123 @@ function attachmentLabel(type: AbandonedCartMessageStep["attachmentType"]): stri
   return "Sem anexo";
 }
 
+function CouponSettings({
+  step,
+  onChange,
+}: {
+  step: AbandonedCartMessageStep;
+  onChange: (patch: Partial<AbandonedCartMessageStep>) => void;
+}) {
+  return (
+    <div className="mt-4 border-t border-gray-200 pt-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-gray-800">Cupom automático</div>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500">
+            Cria um código exclusivo de uso único e aplica ao checkout antes de enviar a mensagem.
+          </p>
+        </div>
+        <Toggle
+          value={step.couponEnabled}
+          onChange={(couponEnabled) => onChange({ couponEnabled })}
+          label={step.couponEnabled ? "Ativado" : "Desativado"}
+          compact
+        />
+      </div>
+
+      {step.couponEnabled && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="text-xs font-medium text-gray-700">
+              Tipo de desconto
+              <select
+                value={step.couponType}
+                onChange={(event) =>
+                  onChange({
+                    couponType: event.target.value as AbandonedCartMessageStep["couponType"],
+                  })
+                }
+                className="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+              >
+                <option value="percentage">Porcentagem</option>
+                <option value="absolute">Valor fixo</option>
+                <option value="shipping">Frete grátis</option>
+              </select>
+            </label>
+
+            {step.couponType !== "shipping" && (
+              <label className="text-xs font-medium text-gray-700">
+                {step.couponType === "percentage" ? "Desconto (%)" : "Desconto (R$)"}
+                <input
+                  type="number"
+                  min="0.01"
+                  max={step.couponType === "percentage" ? 100 : undefined}
+                  step={step.couponType === "percentage" ? 1 : 0.01}
+                  value={step.couponValue}
+                  onChange={(event) =>
+                    onChange({ couponValue: Number(event.target.value) })
+                  }
+                  className="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                />
+              </label>
+            )}
+
+            <label className="text-xs font-medium text-gray-700">
+              Validade depois do envio
+              <div className="mt-1.5 flex items-center rounded-lg border border-gray-300 bg-white">
+                <input
+                  type="number"
+                  min="1"
+                  max="720"
+                  step="1"
+                  value={step.couponValidHours}
+                  onChange={(event) =>
+                    onChange({ couponValidHours: Number(event.target.value) })
+                  }
+                  className="min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+                />
+                <span className="pr-3 text-xs text-gray-500">horas</span>
+              </div>
+            </label>
+
+            <label className="text-xs font-medium text-gray-700">
+              Compra mínima (opcional)
+              <div className="mt-1.5 flex items-center rounded-lg border border-gray-300 bg-white">
+                <span className="pl-3 text-xs text-gray-500">R$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={step.couponMinPrice ?? ""}
+                  placeholder="Sem mínimo"
+                  onChange={(event) =>
+                    onChange({
+                      couponMinPrice:
+                        event.target.value === "" ? null : Number(event.target.value),
+                    })
+                  }
+                  className="min-w-0 flex-1 rounded-lg px-2 py-2 text-sm outline-none"
+                />
+              </div>
+            </label>
+          </div>
+          <div className="mt-3 text-xs leading-5 text-amber-900">
+            Use <strong>{"{{cupom}}"}</strong> para mostrar o código na mensagem. Se o checkout já tiver um cupom, o sistema preserva o código existente.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function couponStepLabel(step: AbandonedCartMessageStep): string {
+  if (step.couponType === "shipping") return "Cupom: frete grátis";
+  if (step.couponType === "percentage") {
+    return `Cupom: ${formatCompactNumber(step.couponValue)}%`;
+  }
+  return `Cupom: ${formatMoney(step.couponValue, "BRL")}`;
+}
+
 function CartRows({
   cart,
   steps,
@@ -683,6 +834,11 @@ function CartRows({
                     <div key={message.id} className="flex items-start justify-between gap-4 text-sm">
                       <div>
                         <span className="font-medium">{message.sequenceStep}ª mensagem — {messageStatusLabels[message.status] || message.status}</span>
+                        {message.couponCode && (
+                          <div className="mt-0.5 text-xs font-medium text-amber-700">
+                            Cupom {message.couponCode} aplicado
+                          </div>
+                        )}
                         {message.errorMessage && <div className="text-xs text-red-600 mt-0.5">{message.errorMessage}</div>}
                       </div>
                       <span className="text-xs text-gray-500 whitespace-nowrap">
@@ -749,7 +905,7 @@ function MessageSequenceStatus({
       stepNumber,
       delivery,
       status,
-      content: renderCartMessage(step.messageTemplate, cart, storeName),
+      content: renderCartMessage(step, cart, storeName, delivery?.couponCode),
       attachmentUrl:
         delivery?.attachmentUrl ||
         (step.attachmentType === "library"
@@ -949,21 +1105,42 @@ function sequenceStatusVisual(status: string): {
 }
 
 function renderCartMessage(
-  template: string,
+  step: AbandonedCartMessageStep,
   cart: AbandonedCartView,
-  storeName: string
+  storeName: string,
+  deliveredCouponCode?: string | null
 ): string {
   const firstName = cart.customerName.trim().split(/\s+/)[0] || "cliente";
+  const couponCode = deliveredCouponCode || (step.couponEnabled ? "GERADO NO ENVIO" : "");
+  const template =
+    couponCode && !step.messageTemplate.includes("{{cupom}}")
+      ? `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* no seu carrinho.`
+      : step.messageTemplate;
   const variables: Record<string, string> = {
     "{{nome}}": firstName,
     "{{produtos}}": cart.productsSummary || "seus produtos",
     "{{link}}": cart.checkoutUrl || "Link indisponível",
     "{{loja}}": storeName,
+    "{{cupom}}": couponCode,
+    "{{desconto}}": couponDiscountPreview(step),
   };
   return Object.entries(variables).reduce(
     (message, [variable, value]) => message.replaceAll(variable, value),
     template
   );
+}
+
+function couponDiscountPreview(step: AbandonedCartMessageStep): string {
+  if (!step.couponEnabled) return "";
+  if (step.couponType === "shipping") return "frete grátis";
+  if (step.couponType === "percentage") {
+    return `${formatCompactNumber(step.couponValue)}% de desconto`;
+  }
+  return `${formatMoney(step.couponValue, "BRL")} de desconto`;
+}
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
 }
 
 function formatDelay(delayMinutes: number): string {

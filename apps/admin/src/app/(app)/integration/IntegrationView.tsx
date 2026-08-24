@@ -244,14 +244,23 @@ function Connected({
 function WebhookSection({ installUrl }: { installUrl: string | null }) {
   const [state, setState] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [access, setAccess] = useState<"checking" | "ok" | "missing">("checking");
+  const [access, setAccess] = useState<{
+    checking: boolean;
+    orders: boolean;
+    coupons: boolean;
+  }>({ checking: true, orders: false, coupons: false });
 
   useEffect(() => {
     fetch("/api/nuvemshop/check-automation-access")
-      .then((res) => {
-        setAccess(res.ok ? "ok" : "missing");
+      .then((res) => res.json())
+      .then((json) => {
+        setAccess({
+          checking: false,
+          orders: json.read_orders === true,
+          coupons: json.coupons === true,
+        });
       })
-      .catch(() => setAccess("missing"));
+      .catch(() => setAccess({ checking: false, orders: false, coupons: false }));
   }, []);
 
   async function register() {
@@ -274,15 +283,15 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
         Registre os eventos de pedido para cancelar carrinhos recuperados e agendar
         mensagens de pós-venda automaticamente.
       </p>
-      {access === "checking" && (
+      {access.checking && (
         <p className="text-sm text-gray-500 mb-4">Verificando permissões...</p>
       )}
-      {access === "ok" && (
+      {!access.checking && access.orders && (
         <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
           ✓ A permissão <code>read_orders</code> está ativa.
         </p>
       )}
-      {access === "missing" && (
+      {!access.checking && !access.orders && (
         <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
           <p>
             Adicione a permissão <code>read_orders</code> no aplicativo Nuvemshop e
@@ -295,11 +304,28 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
           )}
         </div>
       )}
+      {!access.checking && access.coupons && (
+        <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+          ✓ O acesso aos cupons está ativo. Para criar os códigos automáticos, mantenha também <code>write_coupons</code> habilitada no aplicativo.
+        </p>
+      )}
+      {!access.checking && !access.coupons && (
+        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+          <p>
+            Ative <code>read_coupons</code> e <code>write_coupons</code> no aplicativo Nuvemshop para criar e aplicar cupons automáticos.
+          </p>
+          {installUrl && (
+            <a href={installUrl} className="inline-block underline font-medium mt-2">
+              Atualizar autorização da loja
+            </a>
+          )}
+        </div>
+      )}
       <div className="flex items-center gap-3 flex-wrap">
         <button
           type="button"
           onClick={register}
-          disabled={state === "saving" || access !== "ok"}
+          disabled={state === "saving" || !access.orders}
           className="bg-brand-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
         >
           {state === "saving" ? "Registrando..." : "Registrar webhooks"}

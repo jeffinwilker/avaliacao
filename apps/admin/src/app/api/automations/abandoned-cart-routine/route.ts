@@ -14,6 +14,11 @@ interface RoutineStepInput {
   enabled?: unknown;
   attachmentType?: unknown;
   attachmentUrl?: unknown;
+  couponEnabled?: unknown;
+  couponType?: unknown;
+  couponValue?: unknown;
+  couponValidHours?: unknown;
+  couponMinPrice?: unknown;
 }
 
 export async function PUT(req: NextRequest) {
@@ -59,6 +64,17 @@ export async function PUT(req: NextRequest) {
       /^https:\/\//i.test(step.attachmentUrl)
         ? step.attachmentUrl
         : null;
+    const couponEnabled = step.couponEnabled === true;
+    const couponType =
+      step.couponType === "absolute" || step.couponType === "shipping"
+        ? step.couponType
+        : "percentage";
+    const couponValue = Number(step.couponValue ?? 10);
+    const couponValidHours = Number(step.couponValidHours ?? 48);
+    const couponMinPrice =
+      step.couponMinPrice == null || step.couponMinPrice === ""
+        ? null
+        : Number(step.couponMinPrice);
 
     if (
       !id ||
@@ -69,7 +85,18 @@ export async function PUT(req: NextRequest) {
       delays.has(delayMinutes) ||
       !messageTemplate ||
       messageTemplate.length > 4000 ||
-      (attachmentType === "library" && !attachmentUrl)
+      (attachmentType === "library" && !attachmentUrl) ||
+      (couponEnabled && couponType !== "shipping" && (
+        !Number.isFinite(couponValue) || couponValue <= 0 ||
+        (couponType === "percentage" && couponValue > 100)
+      )) ||
+      (couponEnabled && (
+        !Number.isInteger(couponValidHours) ||
+        couponValidHours < 1 || couponValidHours > 720
+      )) ||
+      (couponMinPrice != null && (
+        !Number.isFinite(couponMinPrice) || couponMinPrice < 0
+      ))
     ) {
       return [];
     }
@@ -82,6 +109,11 @@ export async function PUT(req: NextRequest) {
       enabled: step.enabled !== false,
       attachment_type: attachmentType,
       attachment_url: attachmentType === "library" ? attachmentUrl : null,
+      coupon_enabled: couponEnabled,
+      coupon_type: couponType,
+      coupon_value: couponType === "shipping" ? 0 : couponValue,
+      coupon_valid_hours: couponValidHours,
+      coupon_min_price: couponMinPrice,
     }];
   }).sort((a, b) => a.delay_minutes - b.delay_minutes);
 
@@ -89,7 +121,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Revise a rotina: os horários devem ser únicos, entre 10 minutos e 30 dias, e todas as mensagens precisam ter texto.",
+          "Revise a rotina: confira os horários, textos, anexos e configurações do cupom.",
       },
       { status: 400 }
     );
