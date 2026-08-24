@@ -45,6 +45,9 @@ const messageStatusLabels: Record<string, string> = {
   sent: "Enviada",
   failed: "Falhou",
   cancelled: "Cancelada",
+  waiting: "Aguardando",
+  paused: "Pausada",
+  no_phone: "Sem WhatsApp",
 };
 
 const followUpTemplate = `Oi {{nome}}! 😊
@@ -58,12 +61,14 @@ Se ficou alguma dúvida, pode responder esta mensagem.`;
 
 export function AbandonedCartDashboard({
   storeId,
+  storeName,
   initialEnabled,
   initialSteps,
   carts,
   mode = "all",
 }: {
   storeId: string;
+  storeName: string;
   initialEnabled: boolean;
   initialSteps: AbandonedCartMessageStep[];
   carts: AbandonedCartView[];
@@ -375,6 +380,8 @@ export function AbandonedCartDashboard({
                     <CartRows
                       key={cart.id}
                       cart={cart}
+                      steps={steps}
+                      storeName={storeName}
                       displayStatus={displayStatus}
                       expanded={expanded}
                       onToggle={() => setExpandedCart(expanded ? null : cart.id)}
@@ -398,11 +405,15 @@ export function AbandonedCartDashboard({
 
 function CartRows({
   cart,
+  steps,
+  storeName,
   displayStatus,
   expanded,
   onToggle,
 }: {
   cart: AbandonedCartView;
+  steps: AbandonedCartMessageStep[];
+  storeName: string;
   displayStatus: ReturnType<typeof cartDisplayStatus>;
   expanded: boolean;
   onToggle: () => void;
@@ -454,14 +465,8 @@ function CartRows({
         <td className="px-5 py-4 font-semibold whitespace-nowrap">
           {formatMoney(cart.total, cart.currency)}
         </td>
-        <td className="px-5 py-4 min-w-[210px]">
-          <div className="flex gap-1.5 flex-wrap mb-2">
-            {cart.messages.length ? cart.messages.map((message) => (
-              <span key={message.id} className={messageStatusClass(message.status)} title={message.errorMessage || undefined}>
-                {message.sequenceStep}ª {messageStatusLabels[message.status] || message.status}
-              </span>
-            )) : <span className="text-xs text-gray-400">Sem mensagens</span>}
-          </div>
+        <td className="px-5 py-4 min-w-[300px]">
+          <MessageSequenceStatus cart={cart} steps={steps} storeName={storeName} />
           <div className="flex items-center gap-3">
             <button type="button" onClick={onToggle} className="text-xs font-medium text-brand-900 underline">
               {expanded ? "Ocultar detalhes" : "Ver detalhes"}
@@ -513,6 +518,267 @@ function CartRows({
   );
 }
 
+interface MessagePreviewState {
+  step: AbandonedCartMessageStep;
+  stepNumber: number;
+  delivery: CartMessageView | null;
+  status: string;
+  content: string;
+  top: number;
+  left: number;
+}
+
+function MessageSequenceStatus({
+  cart,
+  steps,
+  storeName,
+}: {
+  cart: AbandonedCartView;
+  steps: AbandonedCartMessageStep[];
+  storeName: string;
+}) {
+  const [preview, setPreview] = useState<MessagePreviewState | null>(null);
+  const messagesByStep = new Map(
+    cart.messages.map((message) => [message.routineStepKey, message])
+  );
+
+  function openPreview(
+    target: HTMLButtonElement,
+    step: AbandonedCartMessageStep,
+    stepNumber: number,
+    delivery: CartMessageView | null,
+    status: string
+  ) {
+    const rect = target.getBoundingClientRect();
+    const panelWidth = 360;
+    const panelHeight = 430;
+    const fitsOnRight = rect.right + panelWidth + 20 <= window.innerWidth;
+    const left = fitsOnRight
+      ? rect.right + 10
+      : Math.max(12, rect.left - panelWidth - 10);
+    const top = Math.max(
+      12,
+      Math.min(rect.top - 72, window.innerHeight - panelHeight - 12)
+    );
+
+    setPreview({
+      step,
+      stepNumber,
+      delivery,
+      status,
+      content: renderCartMessage(step.messageTemplate, cart, storeName),
+      top,
+      left,
+    });
+  }
+
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-start gap-2">
+        {steps.map((step, index) => {
+          const delivery = messagesByStep.get(step.id) ?? null;
+          const status = stepDeliveryStatus(step, delivery, cart);
+          const visual = sequenceStatusVisual(status);
+          return (
+            <div key={step.id} className="flex w-14 flex-col items-center gap-1">
+              <button
+                type="button"
+                onMouseEnter={(event) =>
+                  openPreview(event.currentTarget, step, index + 1, delivery, status)
+                }
+                onMouseLeave={() => setPreview(null)}
+                onFocus={(event) =>
+                  openPreview(event.currentTarget, step, index + 1, delivery, status)
+                }
+                onBlur={() => setPreview(null)}
+                className={`relative grid h-10 w-10 place-items-center rounded-full border-2 bg-white transition hover:-translate-y-0.5 hover:shadow-md ${visual.iconClass}`}
+                aria-label={`${index + 1}ª mensagem: ${visual.label}. Passe o mouse para visualizar.`}
+              >
+                <MessageCircleIcon />
+                <span className={`absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[9px] font-bold ${visual.badgeClass}`}>
+                  {index + 1}
+                </span>
+              </button>
+              <span className={`max-w-14 truncate text-center text-[10px] font-medium ${visual.textClass}`}>
+                {visual.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {preview && (
+        <div
+          className="pointer-events-none fixed z-[90] w-[360px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl"
+          style={{ top: preview.top, left: preview.left }}
+          role="tooltip"
+        >
+          <div className="flex items-center justify-between gap-3 bg-zinc-900 px-4 py-3 text-white">
+            <div>
+              <div className="text-sm font-semibold">
+                [{preview.stepNumber}] Carrinho abandonado
+              </div>
+              <div className="mt-0.5 text-[11px] text-zinc-300">
+                {formatDelay(preview.step.delayMinutes)} após o carrinho
+              </div>
+            </div>
+            <span className="rounded-full bg-white/15 px-2 py-1 text-[11px] font-medium">
+              {messageStatusLabels[preview.status] || preview.status}
+            </span>
+          </div>
+
+          <div className="max-h-[350px] overflow-hidden bg-[#efeae2] p-4">
+            <div className="max-h-[270px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl rounded-tr-sm bg-[#d9fdd3] px-4 py-3 text-sm leading-6 text-zinc-800 shadow-sm">
+              {preview.content}
+            </div>
+            <div className="mt-3 text-xs text-zinc-600">
+              {preview.delivery ? (
+                <>
+                  {preview.delivery.sentAt ? "Enviada em " : "Programada para "}
+                  <strong>
+                    {formatDateTime(
+                      preview.delivery.sentAt || preview.delivery.scheduledFor
+                    )}
+                  </strong>
+                </>
+              ) : (
+                "Esta etapa ainda não gerou um envio para este carrinho."
+              )}
+            </div>
+            {preview.delivery?.errorMessage && (
+              <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                {preview.delivery.errorMessage}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function MessageCircleIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="21"
+      height="21"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.2 9.2 0 0 1-3.8-.9L3 20.5l1.5-4.8A8.4 8.4 0 1 1 21 11.5Z" />
+      <path d="M8.2 11.7h.01M12 11.7h.01M15.8 11.7h.01" />
+    </svg>
+  );
+}
+
+function stepDeliveryStatus(
+  step: AbandonedCartMessageStep,
+  delivery: CartMessageView | null,
+  cart: AbandonedCartView
+): string {
+  if (delivery) return delivery.status;
+  if (!step.enabled) return "paused";
+  if (!cart.customerPhone) return "no_phone";
+  return "waiting";
+}
+
+function sequenceStatusVisual(status: string): {
+  label: string;
+  iconClass: string;
+  badgeClass: string;
+  textClass: string;
+} {
+  if (status === "sent") {
+    return {
+      label: "Enviada",
+      iconClass: "border-emerald-500 text-emerald-600",
+      badgeClass: "bg-emerald-600 text-white",
+      textClass: "text-emerald-700",
+    };
+  }
+  if (status === "failed") {
+    return {
+      label: "Falhou",
+      iconClass: "border-red-400 text-red-600",
+      badgeClass: "bg-red-600 text-white",
+      textClass: "text-red-700",
+    };
+  }
+  if (status === "scheduled" || status === "processing") {
+    return {
+      label: status === "processing" ? "Enviando" : "Agendada",
+      iconClass: "border-blue-400 text-blue-600",
+      badgeClass: "bg-blue-600 text-white",
+      textClass: "text-blue-700",
+    };
+  }
+  if (status === "cancelled") {
+    return {
+      label: "Cancelada",
+      iconClass: "border-zinc-300 text-zinc-400",
+      badgeClass: "bg-zinc-500 text-white",
+      textClass: "text-zinc-500",
+    };
+  }
+  if (status === "paused") {
+    return {
+      label: "Pausada",
+      iconClass: "border-zinc-200 text-zinc-400",
+      badgeClass: "bg-zinc-400 text-white",
+      textClass: "text-zinc-500",
+    };
+  }
+  if (status === "no_phone") {
+    return {
+      label: "Sem número",
+      iconClass: "border-amber-300 text-amber-600",
+      badgeClass: "bg-amber-500 text-white",
+      textClass: "text-amber-700",
+    };
+  }
+  return {
+    label: "Aguardando",
+    iconClass: "border-zinc-300 text-zinc-600",
+    badgeClass: "bg-zinc-700 text-white",
+    textClass: "text-zinc-600",
+  };
+}
+
+function renderCartMessage(
+  template: string,
+  cart: AbandonedCartView,
+  storeName: string
+): string {
+  const firstName = cart.customerName.trim().split(/\s+/)[0] || "cliente";
+  const variables: Record<string, string> = {
+    "{{nome}}": firstName,
+    "{{produtos}}": cart.productsSummary || "seus produtos",
+    "{{link}}": cart.checkoutUrl || "Link indisponível",
+    "{{loja}}": storeName,
+  };
+  return Object.entries(variables).reduce(
+    (message, [variable, value]) => message.replaceAll(variable, value),
+    template
+  );
+}
+
+function formatDelay(delayMinutes: number): string {
+  if (delayMinutes >= 1_440 && delayMinutes % 1_440 === 0) {
+    const days = delayMinutes / 1_440;
+    return `${days} dia${days === 1 ? "" : "s"}`;
+  }
+  if (delayMinutes >= 60 && delayMinutes % 60 === 0) {
+    const hours = delayMinutes / 60;
+    return `${hours} hora${hours === 1 ? "" : "s"}`;
+  }
+  return `${delayMinutes} minuto${delayMinutes === 1 ? "" : "s"}`;
+}
+
 function SummaryCard({ label, value, tone }: { label: string; value: number; tone: "amber" | "green" | "blue" | "neutral" }) {
   const classes = {
     amber: "border-amber-200 bg-amber-50",
@@ -550,18 +816,6 @@ function cartDisplayStatus(cart: AbandonedCartView) {
     return { key: "recovering", label: "Em recuperação", className: "bg-amber-100 text-amber-800" };
   }
   return { key: "waiting", label: "Aguardando rotina", className: "bg-gray-100 text-gray-700" };
-}
-
-function messageStatusClass(status: string): string {
-  const color =
-    status === "sent"
-      ? "bg-green-100 text-green-800"
-      : status === "failed"
-      ? "bg-red-100 text-red-800"
-      : status === "cancelled"
-      ? "bg-gray-100 text-gray-600"
-      : "bg-blue-100 text-blue-800";
-  return `inline-flex rounded-full px-2 py-1 text-[11px] font-medium ${color}`;
 }
 
 function formatDateTime(value: string): string {

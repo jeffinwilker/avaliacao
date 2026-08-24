@@ -25,7 +25,7 @@ export default async function AbandonedCartsPage({
   const admin = createAdminClient();
   const { data: store } = await admin
     .from("stores")
-    .select("id")
+    .select("id, name")
     .limit(1)
     .maybeSingle();
 
@@ -128,6 +128,7 @@ export default async function AbandonedCartsPage({
 
       <AbandonedCartDashboard
         storeId={store.id}
+        storeName={store.name}
         initialEnabled={settings?.abandoned_cart_enabled ?? false}
         initialSteps={initialSteps}
         carts={carts}
