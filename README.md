@@ -59,6 +59,8 @@ conforme `deploy/README.md`.
 As telas de automação separam carrinhos abandonados e pós-venda. A recuperação
 armazena os carrinhos identificados dos últimos 30 dias e permite montar uma
 rotina com até cinco mensagens de WhatsApp, com atrasos a partir de 10 minutos.
+Ao ativar a rotina ou alterar o tempo de uma etapa, o novo prazo passa a valer
+para carrinhos criados depois da alteração, evitando disparos retroativos em massa.
 Para usar essa versão, execute também a migration
 `0007_abandoned_cart_routines.sql`.
 

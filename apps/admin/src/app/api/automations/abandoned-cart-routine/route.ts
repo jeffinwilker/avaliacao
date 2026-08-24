@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { syncAbandonedCarts } from "@/lib/automations";
+import {
+  parseAbandonedCartSequence,
+  syncAbandonedCarts,
+} from "@/lib/automations";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -36,7 +39,7 @@ export async function PUT(req: NextRequest) {
 
   const ids = new Set<string>();
   const delays = new Set<number>();
-  const steps = body.steps.flatMap((step, index) => {
+  const validatedSteps = body.steps.flatMap((step, index) => {
     const rawId = typeof step.id === "string" ? step.id : `step-${index + 1}`;
     const id = /^[a-zA-Z0-9_-]{1,80}$/.test(rawId) ? rawId : "";
     const delayMinutes =
@@ -68,7 +71,7 @@ export async function PUT(req: NextRequest) {
     }];
   }).sort((a, b) => a.delay_minutes - b.delay_minutes);
 
-  if (steps.length !== body.steps.length) {
+  if (validatedSteps.length !== body.steps.length) {
     return NextResponse.json(
       {
         error:
@@ -79,14 +82,42 @@ export async function PUT(req: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const { data: store } = await admin
-    .from("stores")
-    .select("id")
-    .eq("id", storeId)
-    .maybeSingle();
+  const [{ data: store }, { data: currentSettings }] = await Promise.all([
+    admin.from("stores").select("id").eq("id", storeId).maybeSingle(),
+    admin
+      .from("store_settings")
+      .select(
+        `abandoned_cart_enabled, abandoned_cart_delay_hours,
+         abandoned_cart_whatsapp_template, abandoned_cart_sequence`
+      )
+      .eq("store_id", storeId)
+      .maybeSingle(),
+  ]);
   if (!store) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
+
+  const previousSteps = parseAbandonedCartSequence(
+    currentSettings?.abandoned_cart_sequence,
+    currentSettings?.abandoned_cart_delay_hours,
+    currentSettings?.abandoned_cart_whatsapp_template
+  );
+  const previousById = new Map(previousSteps.map((step) => [step.id, step]));
+  const routineWasActivated = !currentSettings?.abandoned_cart_enabled && enabled;
+  const activatedAt = new Date().toISOString();
+  const steps = validatedSteps.map((step) => {
+    const previous = previousById.get(step.id);
+    const timingChanged = previous?.delay_minutes !== step.delay_minutes;
+    const stepWasActivated = previous?.enabled === false && step.enabled;
+    const startsNow =
+      enabled &&
+      step.enabled &&
+      (routineWasActivated || !previous || timingChanged || stepWasActivated);
+    return {
+      ...step,
+      active_since: startsNow ? activatedAt : previous?.active_since ?? null,
+    };
+  });
 
   const firstStep = steps[0];
   const { error } = await admin.from("store_settings").upsert(
@@ -105,6 +136,22 @@ export async function PUT(req: NextRequest) {
   );
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const restartedStepIds = steps
+    .filter((step) => step.active_since === activatedAt)
+    .map((step) => step.id);
+  if (restartedStepIds.length) {
+    await admin
+      .from("automation_messages")
+      .update({
+        status: "cancelled",
+        error_message: "Rotina atualizada",
+      })
+      .eq("store_id", storeId)
+      .eq("automation_type", "abandoned_cart")
+      .eq("status", "scheduled")
+      .in("routine_step_key", restartedStepIds);
   }
 
   const sync = await syncAbandonedCarts(admin);

@@ -43,6 +43,7 @@ export interface StoredAbandonedCartStep {
   delay_minutes: number;
   message_template: string;
   enabled: boolean;
+  active_since: string | null;
 }
 
 interface ExistingAutomationMessage {
@@ -217,6 +218,13 @@ export async function syncAbandonedCarts(
           const createdAt = new Date(checkout.created_at).getTime();
           const baseTime = Number.isFinite(createdAt) ? createdAt : Date.now();
           return activeSteps.flatMap((step, index) => {
+            const activeSince = step.active_since
+              ? new Date(step.active_since).getTime()
+              : NaN;
+            if (Number.isFinite(activeSince) && baseTime < activeSince) {
+              return [];
+            }
+
             const messageKey = `${checkout.id}:${step.id}`;
             const existing = knownMessageByKey.get(messageKey);
             if (
@@ -521,6 +529,12 @@ export function parseAbandonedCartSequence(
       delay_minutes: Math.round(delayMinutes),
       message_template: template.slice(0, 4000),
       enabled: candidate.enabled !== false,
+      active_since:
+        typeof candidate.active_since === "string"
+          ? candidate.active_since
+          : typeof candidate.activeSince === "string"
+            ? candidate.activeSince
+            : null,
     }];
   });
 
@@ -539,6 +553,7 @@ export function parseAbandonedCartSequence(
     ),
     message_template: fallbackTemplate || fallback.messageTemplate,
     enabled: true,
+    active_since: null,
   }];
 }
 
