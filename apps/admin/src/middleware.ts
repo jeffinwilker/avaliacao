@@ -38,8 +38,16 @@ export async function middleware(request: NextRequest) {
   const isApiPath = pathname.startsWith("/api");
   // Bundle do widget é público (é carregado pelo tema da loja).
   const isWidgetAsset = pathname.startsWith("/widget");
+  // Convites de avaliação são públicos e protegidos por token individual.
+  const isReviewInvitation = pathname.startsWith("/avaliar/");
 
-  if (!user && !isAuthPath && !isApiPath && !isWidgetAsset) {
+  if (
+    !user &&
+    !isAuthPath &&
+    !isApiPath &&
+    !isWidgetAsset &&
+    !isReviewInvitation
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);

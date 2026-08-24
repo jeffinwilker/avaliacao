@@ -95,11 +95,17 @@ async function sendReviewRequests(
       continue;
     }
 
-    const baseLink = product.url ||
-      (store.domain ? normalizeStoreUrl(store.domain) : `${appUrl}/r/${request.token}`);
-    const link = baseLink.includes("/r/")
-      ? baseLink
-      : `${baseLink}${baseLink.includes("?") ? "&" : "?"}av-token=${request.token}`;
+    const directReviewLink = appUrl
+      ? `${appUrl.replace(/\/$/, "")}/avaliar/${encodeURIComponent(request.token)}`
+      : null;
+    const baseLink =
+      product.url ||
+      (store.domain
+        ? normalizeStoreUrl(store.domain)
+        : `/avaliar/${encodeURIComponent(request.token)}`);
+    const link =
+      directReviewLink ??
+      `${baseLink}${baseLink.includes("?") ? "&" : "?"}av-token=${request.token}`;
     const vars: Record<string, string> = {
       "{{nome}}": firstName(order.customer_name),
       "{{produto}}": product.name,

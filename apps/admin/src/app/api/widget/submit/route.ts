@@ -72,21 +72,33 @@ export async function POST(req: NextRequest) {
 
     // Token de solicitação → pré-verifica compra
     let orderId: string | null = null;
+    let reviewRequestId: string | null = null;
     let verified = false;
     if (token) {
       const { data: reqRow } = await admin
         .from("review_requests")
-        .select("id, order_id, product_id, status")
+        .select("id, order_id, product_id, store_id, status")
         .eq("token", token)
         .maybeSingle();
-      if (reqRow && reqRow.product_id === product.id) {
-        orderId = reqRow.order_id;
-        verified = true;
-        await admin
-          .from("review_requests")
-          .update({ status: "completed" })
-          .eq("id", reqRow.id);
+
+      if (
+        !reqRow ||
+        reqRow.product_id !== product.id ||
+        reqRow.store_id !== store.id
+      ) {
+        return json({ error: "Convite de avaliação inválido" }, 400);
       }
+
+      if (reqRow.status === "completed") {
+        return json({ error: "Esta avaliação já foi enviada" }, 409);
+      }
+      if (!["scheduled", "sent"].includes(reqRow.status)) {
+        return json({ error: "Este convite não está mais disponível" }, 410);
+      }
+
+      reviewRequestId = reqRow.id;
+      orderId = reqRow.order_id;
+      verified = true;
     }
 
     const status = settings?.auto_publish ? "approved" : "pending";
@@ -143,6 +155,13 @@ export async function POST(req: NextRequest) {
           ordering: ordering++,
         });
       }
+    }
+
+    if (reviewRequestId) {
+      await admin
+        .from("review_requests")
+        .update({ status: "completed", error_message: null })
+        .eq("id", reviewRequestId);
     }
 
     return json({ ok: true, review_id: review.id }, 200);
