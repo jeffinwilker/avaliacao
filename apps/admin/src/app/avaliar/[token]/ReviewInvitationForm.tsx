@@ -15,6 +15,7 @@ interface ReviewInvitationFormProps {
   initialEmail: string;
   brandColor: string;
   maxMedia: number;
+  preview?: boolean;
 }
 
 interface MediaPreview {
@@ -33,6 +34,7 @@ export function ReviewInvitationForm({
   initialEmail,
   brandColor,
   maxMedia,
+  preview = false,
 }: ReviewInvitationFormProps) {
   const [rating, setRating] = useState(0);
   const [name, setName] = useState(initialName);
@@ -54,6 +56,8 @@ export function ReviewInvitationForm({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+
+    if (preview) return;
 
     if (rating < 1) {
       setError("Escolha uma nota de 1 a 5 estrelas.");
@@ -251,6 +255,7 @@ export function ReviewInvitationForm({
                       type="file"
                       accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
                       multiple
+                      disabled={preview}
                       className="sr-only"
                       onChange={(event) => {
                         handleFiles(event.target.files);
@@ -285,7 +290,7 @@ export function ReviewInvitationForm({
             </div>
 
             <button
-              type="submit"
+              type={preview ? "button" : "submit"}
               disabled={submitting}
               className="mt-8 flex min-h-[52px] w-full items-center justify-center rounded-xl px-5 py-3.5 text-base font-bold text-white shadow-sm transition hover:brightness-95 disabled:cursor-wait disabled:opacity-60"
               style={{ backgroundColor: brandColor }}

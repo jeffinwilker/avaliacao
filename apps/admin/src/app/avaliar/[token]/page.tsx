@@ -14,6 +14,52 @@ export default async function ReviewInvitationPage({
   const { token } = await params;
   const admin = createAdminClient();
 
+  if (token === "preview") {
+    const { data: store } = await admin
+      .from("stores")
+      .select("id, name")
+      .limit(1)
+      .maybeSingle();
+    const [{ data: product }, { data: settings }] = store
+      ? await Promise.all([
+          admin
+            .from("products")
+            .select("external_product_id, name, image_url")
+            .eq("store_id", store.id)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          admin
+            .from("store_settings")
+            .select("brand_color, allow_media, max_media_per_review")
+            .eq("store_id", store.id)
+            .maybeSingle(),
+        ])
+      : [{ data: null }, { data: null }];
+    const maxMedia =
+      settings?.allow_media === false
+        ? 0
+        : Math.max(0, Math.min(settings?.max_media_per_review ?? 5, 10));
+
+    return (
+      <ReviewInvitationForm
+        apiKey=""
+        token="preview"
+        storeName={store?.name ?? "Sua loja"}
+        product={{
+          externalId: product?.external_product_id ?? "produto-preview",
+          name: product?.name ?? "Produto comprado pelo cliente",
+          imageUrl: product?.image_url ?? null,
+        }}
+        initialName="Maria"
+        initialEmail="maria@exemplo.com"
+        brandColor={normalizeColor(settings?.brand_color)}
+        maxMedia={maxMedia}
+        preview
+      />
+    );
+  }
+
   const { data: invitation } = await admin
     .from("review_requests")
     .select("store_id, order_id, product_id, status")

@@ -298,6 +298,8 @@ export function PostSaleDashboard({
                 />
               </MessageTemplateCard>
 
+              <ReviewFormPreview />
+
               <MessageTemplateCard
                 title="Confirmação de pedido"
                 description="Avisa o cliente que o pedido foi recebido."
@@ -544,6 +546,43 @@ function MessageTemplateCard({
       <h3 className="font-semibold text-gray-950">{title}</h3>
       <p className="mb-4 mt-1 text-sm leading-5 text-gray-500">{description}</p>
       {children}
+    </div>
+  );
+}
+
+function ReviewFormPreview() {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50/60 p-5">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-gray-950">Prévia da página de avaliação</h3>
+          <p className="mt-1 text-sm leading-5 text-gray-500">
+            Esta é a tela que o cliente abre pelo link da mensagem.
+          </p>
+        </div>
+        <a
+          href="/avaliar/preview"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs font-semibold text-brand-900 underline"
+        >
+          Abrir em tela cheia ↗
+        </a>
+      </div>
+
+      <div className="mx-auto w-full max-w-[410px] overflow-hidden rounded-[32px] border-[7px] border-zinc-900 bg-zinc-900 shadow-xl">
+        <div className="flex h-7 items-center justify-center bg-zinc-900">
+          <span className="h-1.5 w-20 rounded-full bg-zinc-700" />
+        </div>
+        <iframe
+          src="/avaliar/preview"
+          title="Prévia do formulário de avaliação"
+          className="h-[660px] w-full bg-[#f3f2ef]"
+        />
+      </div>
+      <p className="mt-4 text-center text-xs leading-5 text-gray-500">
+        A prévia usa um produto real do catálogo e a cor configurada da loja. O envio fica desativado neste modo.
+      </p>
     </div>
   );
 }
