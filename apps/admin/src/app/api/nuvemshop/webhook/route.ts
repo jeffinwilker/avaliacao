@@ -121,10 +121,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (payload.event === "order/created") {
-    return NextResponse.json({ ok: true, orderCreated: true });
-  }
-
   const { data: settings } = await admin
     .from("store_settings")
     .select(
@@ -134,10 +130,7 @@ export async function POST(req: NextRequest) {
     .eq("store_id", store.id)
     .maybeSingle();
 
-  const paidAt = order.paid_at ? new Date(order.paid_at).getTime() : NaN;
-  const baseTime = Number.isFinite(paidAt) ? paidAt : Date.now();
-
-  if (settings?.post_purchase_enabled && customerPhone) {
+  if (payload.event === "order/created") {
     const productsSummary = summarizeProducts(
       (order.products ?? []).map((item) => ({
         name:
@@ -147,22 +140,29 @@ export async function POST(req: NextRequest) {
         quantity: item.quantity,
       }))
     );
-    const delayHours = Math.max(0, settings.post_purchase_delay_hours ?? 24);
-    await queuePostPurchaseMessage(admin, {
-      storeId: store.id,
-      externalReference: externalOrderId,
-      referenceLabel: String(order.number || externalOrderId),
-      sourceToken: order.token,
-      customerName,
-      customerPhone,
-      productsSummary: productsSummary || "seus produtos",
-      link: store.domain ? normalizeStoreUrl(store.domain) : null,
-      scheduledFor: new Date(baseTime + delayHours * 3600_000).toISOString(),
-    });
+
+    if (settings?.post_purchase_enabled && customerPhone) {
+      const createdAt = new Date(order.created_at).getTime();
+      const baseTime = Number.isFinite(createdAt) ? createdAt : Date.now();
+      const delayHours = Math.max(0, settings.post_purchase_delay_hours ?? 0);
+      await queuePostPurchaseMessage(admin, {
+        storeId: store.id,
+        externalReference: externalOrderId,
+        referenceLabel: String(order.number || externalOrderId),
+        sourceToken: order.token,
+        customerName,
+        customerPhone,
+        productsSummary: productsSummary || "seus produtos",
+        link: store.domain ? normalizeStoreUrl(store.domain) : null,
+        scheduledFor: new Date(baseTime + delayHours * 3600_000).toISOString(),
+      });
+    }
+
+    return NextResponse.json({ ok: true, orderCreated: true });
   }
 
   // A solicitação de avaliação continua sendo uma automação de pós-venda
-  // independente da mensagem geral acima.
+  // independente da confirmação enviada na criação do pedido.
   const reviewDelay = settings?.request_delay_days ?? 7;
   const reviewScheduledFor = new Date(
     Date.now() + reviewDelay * 86400_000

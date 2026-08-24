@@ -51,7 +51,7 @@ export async function PUT(req: NextRequest) {
     postPurchaseDelayHours > 720
   ) {
     return NextResponse.json(
-      { error: "A mensagem após a compra deve ser enviada entre 0 e 720 horas" },
+      { error: "A confirmação do pedido deve ser enviada entre 0 e 720 horas" },
       { status: 400 }
     );
   }
@@ -69,7 +69,7 @@ export async function PUT(req: NextRequest) {
   }
   if (!postPurchaseTemplate || postPurchaseTemplate.length > 4000) {
     return NextResponse.json(
-      { error: "Escreva a mensagem após a compra (até 4000 caracteres)" },
+      { error: "Escreva a mensagem de confirmação do pedido (até 4000 caracteres)" },
       { status: 400 }
     );
   }

@@ -134,7 +134,7 @@ export function PostSaleDashboard({
           <div>
             <h2 className="text-lg font-semibold">Rotinas de pós-venda</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Configure a mensagem do pedido e o convite que leva ao formulário de avaliação.
+              Configure a confirmação do pedido e o convite que leva ao formulário de avaliação.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -188,8 +188,8 @@ export function PostSaleDashboard({
           </RoutineCard>
 
           <RoutineCard
-            title="Mensagem após a compra"
-            description="Confirma o pedido e mantém o cliente informado antes do momento de pedir a avaliação."
+            title="Confirmação de pedido"
+            description="Enviada quando um novo pedido é criado, antes mesmo da confirmação do pagamento."
             enabled={postPurchaseEnabled}
             onEnabledChange={setPostPurchaseEnabled}
             timing={
@@ -198,11 +198,15 @@ export function PostSaleDashboard({
                 value={postPurchaseDelayHours}
                 min={0}
                 max={720}
-                suffix="horas do pagamento"
+                suffix="horas após o pedido"
                 onChange={setPostPurchaseDelayHours}
               />
             }
           >
+            <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
+              Use <strong>0 horas</strong> para enviar no próximo processamento da fila.
+              Com o agendamento a cada 5 minutos, a confirmação chega em até cerca de 5 minutos.
+            </div>
             <TemplateEditor
               value={postPurchaseTemplate}
               onChange={setPostPurchaseTemplate}
@@ -213,7 +217,7 @@ export function PostSaleDashboard({
                 "{{loja}}",
                 "{{link}}",
               ]}
-              label="Mensagem após a compra"
+              label="Mensagem de confirmação do pedido"
             />
           </RoutineCard>
         </div>
@@ -231,7 +235,7 @@ export function PostSaleDashboard({
           <div>
             <h2 className="text-lg font-semibold">Pedidos e envios</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Acompanhe a mensagem após a compra e o convite de avaliação de cada produto.
+              Acompanhe a confirmação do pedido e o convite de avaliação de cada produto.
             </p>
           </div>
           <input
@@ -251,7 +255,7 @@ export function PostSaleDashboard({
                   <th className="px-5 py-3 text-left">Pedido</th>
                   <th className="px-5 py-3 text-left">Cliente</th>
                   <th className="px-5 py-3 text-left">Produtos</th>
-                  <th className="px-5 py-3 text-left">Após a compra</th>
+                  <th className="px-5 py-3 text-left">Confirmação do pedido</th>
                   <th className="px-5 py-3 text-left">Pedido de avaliação</th>
                 </tr>
               </thead>
