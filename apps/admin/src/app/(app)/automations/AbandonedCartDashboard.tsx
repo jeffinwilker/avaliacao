@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { AbandonedCartMessageStep } from "@avaliacoes/shared";
+import Link from "next/link";
+import type {
+  AbandonedCartMessageStep,
+  AutomationMediaAsset,
+} from "@avaliacoes/shared";
+import { AutomationAttachmentPicker } from "./AutomationAttachmentPicker";
 import { AutomationDelayField } from "./AutomationDelayField";
 
 export interface CartProductView {
@@ -20,6 +25,7 @@ export interface CartMessageView {
   scheduledFor: string;
   sentAt: string | null;
   errorMessage: string | null;
+  attachmentUrl: string | null;
 }
 
 export interface AbandonedCartView {
@@ -64,6 +70,7 @@ export function AbandonedCartDashboard({
   storeName,
   initialEnabled,
   initialSteps,
+  initialMediaAssets,
   carts,
   mode = "all",
 }: {
@@ -71,12 +78,14 @@ export function AbandonedCartDashboard({
   storeName: string;
   initialEnabled: boolean;
   initialSteps: AbandonedCartMessageStep[];
+  initialMediaAssets: AutomationMediaAsset[];
   carts: AbandonedCartView[];
   mode?: "all" | "routine" | "messages" | "orders";
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [steps, setSteps] = useState(initialSteps);
+  const [mediaAssets, setMediaAssets] = useState(initialMediaAssets);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [query, setQuery] = useState("");
@@ -130,6 +139,8 @@ export function AbandonedCartDashboard({
         delayMinutes: Math.min(43_200, lastDelay + 1_440),
         messageTemplate: followUpTemplate,
         enabled: true,
+        attachmentType: "none",
+        attachmentUrl: null,
       },
     ]);
     setFeedback(null);
@@ -161,6 +172,13 @@ export function AbandonedCartDashboard({
         delayMinutes: Number(step.delay_minutes),
         messageTemplate: String(step.message_template),
         enabled: step.enabled !== false,
+        attachmentType:
+          step.attachment_type === "product_image" ||
+          step.attachment_type === "library"
+            ? step.attachment_type
+            : "none",
+        attachmentUrl:
+          typeof step.attachment_url === "string" ? step.attachment_url : null,
       }))
     );
     setFeedback({
@@ -205,126 +223,93 @@ export function AbandonedCartDashboard({
           )}
         </div>
 
-        <div className="p-5 space-y-4">
-          {steps.map((step, index) => (
-            <div key={step.id} className="rounded-xl border border-gray-200 p-4 bg-gray-50/60">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className="h-8 w-8 rounded-full bg-brand-900 text-white flex items-center justify-center text-sm font-bold">
-                    {index + 1}
-                  </span>
-                  {showRoutine ? (
-                    <AutomationDelayField
-                      delayMinutes={step.delayMinutes}
-                      minMinutes={10}
-                      maxMinutes={43_200}
-                      presets={[
-                        { label: "10 min", value: 10 },
-                        { label: "30 min", value: 30 },
-                        { label: "1 h", value: 60 },
-                        { label: "4 h", value: 240 },
-                        { label: "1 dia", value: 1_440 },
-                      ]}
-                      onChange={(delayMinutes) =>
-                        updateStep(step.id, { delayMinutes })
-                      }
-                    />
-                  ) : (
+        {showRoutine ? (
+          <AbandonedFlowBuilder
+            steps={steps}
+            saving={saving}
+            feedback={feedback}
+            onUpdateStep={updateStep}
+            onAddStep={addStep}
+            onRemoveStep={removeStep}
+            onSave={saveRoutine}
+          />
+        ) : (
+          <div className="space-y-4 p-5">
+            {steps.map((step, index) => (
+              <div key={step.id} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-900 text-sm font-bold text-white">
+                      {index + 1}
+                    </span>
                     <div>
                       <div className="font-semibold">Mensagem {index + 1}</div>
-                      <div className="text-xs text-gray-500">
-                        Horário configurado em Rotinas
-                      </div>
+                      <div className="text-xs text-gray-500">Horário configurado em Rotinas</div>
                     </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  {showRoutine && (
-                    <Toggle
-                      value={step.enabled}
-                      onChange={(value) => updateStep(step.id, { enabled: value })}
-                      label={step.enabled ? "Ligada" : "Pausada"}
-                      compact
-                    />
-                  )}
-                  {showMessages && (
-                    <button
-                      type="button"
-                      onClick={() => removeStep(step.id)}
-                      disabled={steps.length === 1}
-                      className="text-sm text-red-700 disabled:text-gray-300"
-                    >
-                      Excluir
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {showMessages && (
-                <>
-                  <textarea
-                    value={step.messageTemplate}
-                    onChange={(event) => updateStep(step.id, { messageTemplate: event.target.value })}
-                    maxLength={4000}
-                    className="w-full min-h-[150px] border border-gray-300 bg-white rounded-xl px-4 py-3 text-sm leading-6 resize-y"
-                    aria-label={`Texto da mensagem ${index + 1}`}
-                  />
-                  <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
-                    <div className="flex gap-2 flex-wrap">
-                      {["{{nome}}", "{{produtos}}", "{{link}}", "{{loja}}"].map((variable) => (
-                        <button
-                          type="button"
-                          key={variable}
-                          onClick={() => updateStep(step.id, { messageTemplate: `${step.messageTemplate}${step.messageTemplate.endsWith(" ") ? "" : " "}${variable}` })}
-                          className="text-xs font-mono rounded-md border border-gray-300 bg-white px-2 py-1 hover:bg-gray-100"
-                        >
-                          {variable}
-                        </button>
-                      ))}
-                    </div>
-                    <span className="text-xs text-gray-400">{step.messageTemplate.length}/4000</span>
                   </div>
-                </>
-              )}
-            </div>
-          ))}
+                  <button
+                    type="button"
+                    onClick={() => removeStep(step.id)}
+                    disabled={steps.length === 1}
+                    className="text-sm text-red-700 disabled:text-gray-300"
+                  >
+                    Excluir
+                  </button>
+                </div>
 
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            {showMessages ? (
+                <textarea
+                  value={step.messageTemplate}
+                  onChange={(event) => updateStep(step.id, { messageTemplate: event.target.value })}
+                  maxLength={4000}
+                  className="min-h-[150px] w-full resize-y rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm leading-6"
+                  aria-label={`Texto da mensagem ${index + 1}`}
+                />
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    {["{{nome}}", "{{produtos}}", "{{link}}", "{{loja}}"].map((variable) => (
+                      <button
+                        type="button"
+                        key={variable}
+                        onClick={() => updateStep(step.id, { messageTemplate: `${step.messageTemplate}${step.messageTemplate.endsWith(" ") ? "" : " "}${variable}` })}
+                        className="rounded-md border border-gray-300 bg-white px-2 py-1 font-mono text-xs hover:bg-gray-100"
+                      >
+                        {variable}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-gray-400">{step.messageTemplate.length}/4000</span>
+                </div>
+                <AutomationAttachmentPicker
+                  storeId={storeId}
+                  attachmentType={step.attachmentType}
+                  attachmentUrl={step.attachmentUrl}
+                  assets={mediaAssets}
+                  onChange={(attachmentType, attachmentUrl) =>
+                    updateStep(step.id, { attachmentType, attachmentUrl })
+                  }
+                  onAssetUploaded={(asset) =>
+                    setMediaAssets((current) => [
+                      asset,
+                      ...current.filter((item) => item.path !== asset.path),
+                    ])
+                  }
+                />
+              </div>
+            ))}
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <button
                 type="button"
                 onClick={addStep}
                 disabled={steps.length >= 5}
-                className="border border-gray-300 bg-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40"
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium disabled:opacity-40"
               >
                 + Adicionar mensagem
               </button>
-            ) : (
-              <span className="text-xs text-gray-500">
-                Os textos são editados na página Mensagens.
-              </span>
-            )}
-            <div className="flex items-center gap-3">
-              {feedback && (
-                <span className={`text-sm ${feedback.type === "ok" ? "text-green-700" : "text-red-700"}`}>
-                  {feedback.text}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={saveRoutine}
-                disabled={saving}
-                className="bg-brand-900 text-white rounded-lg px-5 py-2.5 text-sm font-medium disabled:opacity-50"
-              >
-                {saving
-                  ? "Salvando..."
-                  : showMessages
-                    ? "Salvar mensagens"
-                    : "Salvar rotina"}
-              </button>
+              <SaveFlowActions feedback={feedback} saving={saving} onSave={saveRoutine} label="Salvar mensagens" />
             </div>
           </div>
-        </div>
+        )}
       </section>}
 
       {showOrders && <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
@@ -401,6 +386,203 @@ export function AbandonedCartDashboard({
       </section>}
     </div>
   );
+}
+
+function AbandonedFlowBuilder({
+  steps,
+  saving,
+  feedback,
+  onUpdateStep,
+  onAddStep,
+  onRemoveStep,
+  onSave,
+}: {
+  steps: AbandonedCartMessageStep[];
+  saving: boolean;
+  feedback: { type: "ok" | "error"; text: string } | null;
+  onUpdateStep: (id: string, patch: Partial<AbandonedCartMessageStep>) => void;
+  onAddStep: () => void;
+  onRemoveStep: (id: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="bg-zinc-50">
+      <div className="min-h-[620px] overflow-x-auto bg-[radial-gradient(#d4d4d8_1px,transparent_1px)] bg-[size:20px_20px] px-5 py-8">
+        <div className="mx-auto flex w-full max-w-2xl flex-col items-center">
+          <div className="w-full max-w-md rounded-2xl border-2 border-emerald-400 bg-white shadow-sm">
+            <div className="flex items-center gap-3 p-4">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+                <FlowCartIcon />
+              </span>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Gatilho</div>
+                <div className="font-semibold text-zinc-950">Carrinho abandonado identificado</div>
+                <div className="mt-0.5 text-xs text-zinc-500">Inicia quando o checkout fica sem finalizar.</div>
+              </div>
+            </div>
+          </div>
+
+          {steps.map((step, index) => (
+            <div key={step.id} className="flex w-full flex-col items-center">
+              <FlowConnector />
+              <div className="w-full max-w-xl rounded-2xl border border-violet-200 bg-violet-50 p-4 shadow-sm">
+                <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-violet-700">
+                  <FlowClockIcon /> Tempo desde o carrinho
+                </div>
+                <AutomationDelayField
+                  delayMinutes={step.delayMinutes}
+                  minMinutes={10}
+                  maxMinutes={43_200}
+                  presets={[
+                    { label: "10 min", value: 10 },
+                    { label: "30 min", value: 30 },
+                    { label: "1 h", value: 60 },
+                    { label: "4 h", value: 240 },
+                    { label: "1 dia", value: 1_440 },
+                  ]}
+                  onChange={(delayMinutes) =>
+                    onUpdateStep(step.id, { delayMinutes })
+                  }
+                />
+              </div>
+
+              <FlowConnector />
+              <div className={`w-full max-w-xl rounded-2xl border-2 bg-white shadow-sm ${step.enabled ? "border-blue-400" : "border-zinc-300 opacity-70"}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-100 p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 font-bold text-blue-700">
+                      {index + 1}
+                    </span>
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Ação</div>
+                      <div className="font-semibold text-zinc-950">Enviar mensagem {index + 1}</div>
+                    </div>
+                  </div>
+                  <Toggle
+                    value={step.enabled}
+                    onChange={(enabled) => onUpdateStep(step.id, { enabled })}
+                    label={step.enabled ? "Ligada" : "Pausada"}
+                    compact
+                  />
+                </div>
+                <div className="p-4">
+                  <p className="line-clamp-3 whitespace-pre-line text-sm leading-5 text-zinc-600">
+                    {step.messageTemplate}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
+                        WhatsApp
+                      </span>
+                      <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
+                        {attachmentLabel(step.attachmentType)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href="/automations/abandoned-carts?section=messages"
+                        className="text-xs font-semibold text-brand-900 underline"
+                      >
+                        Editar mensagem
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveStep(step.id)}
+                        disabled={steps.length === 1}
+                        className="text-xs font-medium text-red-700 disabled:text-zinc-300"
+                      >
+                        Excluir bloco
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <FlowConnector />
+          <button
+            type="button"
+            onClick={onAddStep}
+            disabled={steps.length >= 5}
+            className="rounded-xl border-2 border-dashed border-zinc-300 bg-white px-5 py-3 text-sm font-semibold text-zinc-700 shadow-sm hover:border-zinc-500 disabled:opacity-40"
+          >
+            + Adicionar mensagem ao fluxo
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-white px-5 py-4">
+        <span className="text-xs text-zinc-500">
+          O fluxo é executado de cima para baixo conforme os tempos configurados.
+        </span>
+        <SaveFlowActions feedback={feedback} saving={saving} onSave={onSave} label="Salvar fluxo" />
+      </div>
+    </div>
+  );
+}
+
+function SaveFlowActions({
+  feedback,
+  saving,
+  onSave,
+  label,
+}: {
+  feedback: { type: "ok" | "error"; text: string } | null;
+  saving: boolean;
+  onSave: () => void;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      {feedback && (
+        <span className={`text-sm ${feedback.type === "ok" ? "text-green-700" : "text-red-700"}`}>
+          {feedback.text}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={saving}
+        className="rounded-lg bg-brand-900 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+      >
+        {saving ? "Salvando..." : label}
+      </button>
+    </div>
+  );
+}
+
+function FlowConnector() {
+  return (
+    <div className="flex h-10 flex-col items-center">
+      <span className="h-7 w-px bg-zinc-300" />
+      <span className="h-0 w-0 border-x-[5px] border-t-[6px] border-x-transparent border-t-zinc-400" />
+    </div>
+  );
+}
+
+function FlowCartIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 4h2l2.4 10.2a2 2 0 0 0 2 1.5h7.7a2 2 0 0 0 1.9-1.4L21 8H7" />
+      <circle cx="10" cy="20" r="1" />
+      <circle cx="18" cy="20" r="1" />
+    </svg>
+  );
+}
+
+function FlowClockIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+function attachmentLabel(type: AbandonedCartMessageStep["attachmentType"]): string {
+  if (type === "product_image") return "Imagem do produto";
+  if (type === "library") return "Imagem da biblioteca";
+  return "Sem anexo";
 }
 
 function CartRows({
@@ -524,6 +706,7 @@ interface MessagePreviewState {
   delivery: CartMessageView | null;
   status: string;
   content: string;
+  attachmentUrl: string | null;
   top: number;
   left: number;
 }
@@ -567,6 +750,13 @@ function MessageSequenceStatus({
       delivery,
       status,
       content: renderCartMessage(step.messageTemplate, cart, storeName),
+      attachmentUrl:
+        delivery?.attachmentUrl ||
+        (step.attachmentType === "library"
+          ? step.attachmentUrl
+          : step.attachmentType === "product_image"
+            ? cart.products.find((product) => product.imageUrl)?.imageUrl || null
+            : null),
       top,
       left,
     });
@@ -628,8 +818,17 @@ function MessageSequenceStatus({
           </div>
 
           <div className="max-h-[350px] overflow-hidden bg-[#efeae2] p-4">
-            <div className="max-h-[270px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl rounded-tr-sm bg-[#d9fdd3] px-4 py-3 text-sm leading-6 text-zinc-800 shadow-sm">
-              {preview.content}
+            <div className="max-h-[270px] overflow-y-auto rounded-xl rounded-tr-sm bg-[#d9fdd3] p-1.5 text-sm leading-6 text-zinc-800 shadow-sm">
+              {preview.attachmentUrl && (
+                <img
+                  src={preview.attachmentUrl}
+                  alt="Anexo da mensagem"
+                  className="mb-1 max-h-40 w-full rounded-lg object-cover"
+                />
+              )}
+              <div className="whitespace-pre-wrap break-words px-2.5 py-2">
+                {preview.content}
+              </div>
             </div>
             <div className="mt-3 text-xs text-zinc-600">
               {preview.delivery ? (

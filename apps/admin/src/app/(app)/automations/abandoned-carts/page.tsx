@@ -3,6 +3,7 @@ import {
   type AbandonedCartMessageStep,
 } from "@avaliacoes/shared";
 import { parseAbandonedCartSequence } from "@/lib/automations";
+import { listAutomationMedia } from "@/lib/automation-media";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   AbandonedCartDashboard,
@@ -33,7 +34,7 @@ export default async function AbandonedCartsPage({
     return <div className="p-8 text-gray-600">Conecte uma loja primeiro.</div>;
   }
 
-  const [settingsResult, cartsResult, messagesResult] = await Promise.all([
+  const [settingsResult, cartsResult, messagesResult, mediaAssets] = await Promise.all([
     admin
       .from("store_settings")
       .select(
@@ -56,11 +57,12 @@ export default async function AbandonedCartsPage({
       .from("automation_messages")
       .select(
         `id, external_reference, routine_step_key, sequence_step, status,
-         scheduled_for, sent_at, error_message`
+         scheduled_for, sent_at, error_message, attachment_url`
       )
       .eq("store_id", store.id)
       .eq("automation_type", "abandoned_cart")
       .order("sequence_step", { ascending: true }),
+    listAutomationMedia(admin, store.id),
   ]);
 
   if (settingsResult.error || cartsResult.error) {
@@ -78,6 +80,8 @@ export default async function AbandonedCartsPage({
     delayMinutes: step.delay_minutes,
     messageTemplate: step.message_template,
     enabled: step.enabled,
+    attachmentType: step.attachment_type,
+    attachmentUrl: step.attachment_url,
   }));
 
   const messagesByCheckout = new Map<string, CartMessageView[]>();
@@ -91,6 +95,7 @@ export default async function AbandonedCartsPage({
       scheduledFor: message.scheduled_for,
       sentAt: message.sent_at,
       errorMessage: message.error_message,
+      attachmentUrl: message.attachment_url,
     });
     messagesByCheckout.set(message.external_reference, list);
   }
@@ -131,6 +136,7 @@ export default async function AbandonedCartsPage({
         storeName={store.name}
         initialEnabled={settings?.abandoned_cart_enabled ?? false}
         initialSteps={initialSteps}
+        initialMediaAssets={mediaAssets}
         carts={carts}
         mode={section === "routines" ? "routine" : section}
       />

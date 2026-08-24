@@ -9,6 +9,14 @@ export type ReviewStatus = (typeof REVIEW_STATUS)[number];
 export type Platform = (typeof PLATFORMS)[number];
 export type Channel = (typeof CHANNELS)[number];
 export type MediaType = (typeof MEDIA_TYPES)[number];
+export type AutomationAttachmentType = "none" | "product_image" | "library";
+
+export interface AutomationMediaAsset {
+  name: string;
+  url: string;
+  path: string;
+  mimeType: string;
+}
 
 export interface Store {
   id: string;
@@ -50,6 +58,8 @@ export interface AbandonedCartMessageStep {
   delayMinutes: number;
   messageTemplate: string;
   enabled: boolean;
+  attachmentType: AutomationAttachmentType;
+  attachmentUrl: string | null;
 }
 
 export interface Product {

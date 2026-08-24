@@ -100,19 +100,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, cancelled: true });
   }
 
-  const localProducts: Array<{ id: string; name: string }> = [];
+  const localProducts: Array<{
+    id: string;
+    name: string;
+    imageUrl: string | null;
+  }> = [];
   const localNamesByExternalId = new Map<string, string>();
   for (const item of order.products ?? []) {
     const { data: product } = await admin
       .from("products")
-      .select("id, name")
+      .select("id, name, image_url")
       .eq("store_id", store.id)
       .eq("external_product_id", String(item.product_id))
       .maybeSingle();
     if (!product) continue;
 
     const productName = item.name || product.name;
-    localProducts.push({ id: product.id, name: productName });
+    localProducts.push({
+      id: product.id,
+      name: productName,
+      imageUrl: product.image_url,
+    });
     localNamesByExternalId.set(String(item.product_id), productName);
 
     await admin.from("order_items").upsert(
@@ -126,7 +134,8 @@ export async function POST(req: NextRequest) {
     .select(
       `request_delay_days, review_request_delay_minutes,
        email_enabled, whatsapp_enabled, post_purchase_enabled,
-       post_purchase_delay_hours, post_purchase_delay_minutes`
+       post_purchase_delay_hours, post_purchase_delay_minutes,
+       post_purchase_attachment_type, post_purchase_attachment_url`
     )
     .eq("store_id", store.id)
     .maybeSingle();
@@ -150,6 +159,11 @@ export async function POST(req: NextRequest) {
         settings.post_purchase_delay_minutes ??
           (settings.post_purchase_delay_hours ?? 0) * 60
       );
+      const attachmentUrl = resolveAttachmentUrl(
+        settings.post_purchase_attachment_type,
+        settings.post_purchase_attachment_url,
+        localProducts.find((product) => product.imageUrl)?.imageUrl || null
+      );
       await queuePostPurchaseMessage(admin, {
         storeId: store.id,
         externalReference: externalOrderId,
@@ -160,6 +174,7 @@ export async function POST(req: NextRequest) {
         productsSummary: productsSummary || "seus produtos",
         link: store.domain ? normalizeStoreUrl(store.domain) : null,
         scheduledFor: new Date(baseTime + delayMinutes * 60_000).toISOString(),
+        attachmentUrl,
       });
     }
 
@@ -223,4 +238,14 @@ function normalizeStoreUrl(domain: string): string {
   return domain.startsWith("http://") || domain.startsWith("https://")
     ? domain
     : `https://${domain}`;
+}
+
+function resolveAttachmentUrl(
+  type: string | null | undefined,
+  libraryUrl: string | null | undefined,
+  productImageUrl: string | null
+): string | null {
+  if (type === "library") return libraryUrl || null;
+  if (type === "product_image") return productImageUrl;
+  return null;
 }

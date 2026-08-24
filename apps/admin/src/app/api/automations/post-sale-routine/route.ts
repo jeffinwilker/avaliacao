@@ -8,10 +8,14 @@ interface PostSaleRoutineBody {
   reviewDelayMinutes?: unknown;
   reviewDelayDays?: unknown;
   reviewTemplate?: unknown;
+  reviewAttachmentType?: unknown;
+  reviewAttachmentUrl?: unknown;
   postPurchaseEnabled?: unknown;
   postPurchaseDelayMinutes?: unknown;
   postPurchaseDelayHours?: unknown;
   postPurchaseTemplate?: unknown;
+  postPurchaseAttachmentType?: unknown;
+  postPurchaseAttachmentUrl?: unknown;
 }
 
 export async function PUT(req: NextRequest) {
@@ -29,6 +33,10 @@ export async function PUT(req: NextRequest) {
   );
   const reviewTemplate =
     typeof body?.reviewTemplate === "string" ? body.reviewTemplate.trim() : "";
+  const reviewAttachment = parseAttachment(
+    body?.reviewAttachmentType,
+    body?.reviewAttachmentUrl
+  );
   const postPurchaseEnabled = body?.postPurchaseEnabled === true;
   const postPurchaseDelayMinutes = Number(
     body?.postPurchaseDelayMinutes ?? Number(body?.postPurchaseDelayHours) * 60
@@ -37,6 +45,10 @@ export async function PUT(req: NextRequest) {
     typeof body?.postPurchaseTemplate === "string"
       ? body.postPurchaseTemplate.trim()
       : "";
+  const postPurchaseAttachment = parseAttachment(
+    body?.postPurchaseAttachmentType,
+    body?.postPurchaseAttachmentUrl
+  );
 
   if (!storeId) {
     return NextResponse.json({ error: "Loja não informada" }, { status: 400 });
@@ -79,6 +91,12 @@ export async function PUT(req: NextRequest) {
       { status: 400 }
     );
   }
+  if (!reviewAttachment.valid || !postPurchaseAttachment.valid) {
+    return NextResponse.json(
+      { error: "Escolha uma imagem válida da biblioteca ou use a imagem do produto" },
+      { status: 400 }
+    );
+  }
 
   const admin = createAdminClient();
   const { data: store } = await admin
@@ -100,6 +118,8 @@ export async function PUT(req: NextRequest) {
         Math.min(90, Math.ceil(reviewDelayMinutes / 1_440))
       ),
       whatsapp_template: reviewTemplate,
+      whatsapp_attachment_type: reviewAttachment.type,
+      whatsapp_attachment_url: reviewAttachment.url,
       post_purchase_enabled: postPurchaseEnabled,
       post_purchase_delay_minutes: postPurchaseDelayMinutes,
       post_purchase_delay_hours: Math.max(
@@ -107,6 +127,8 @@ export async function PUT(req: NextRequest) {
         Math.min(720, Math.ceil(postPurchaseDelayMinutes / 60))
       ),
       post_purchase_whatsapp_template: postPurchaseTemplate,
+      post_purchase_attachment_type: postPurchaseAttachment.type,
+      post_purchase_attachment_url: postPurchaseAttachment.url,
     },
     { onConflict: "store_id" }
   );
@@ -138,4 +160,24 @@ export async function PUT(req: NextRequest) {
   await Promise.all(cancellations);
 
   return NextResponse.json({ ok: true });
+}
+
+function parseAttachment(typeValue: unknown, urlValue: unknown): {
+  type: "none" | "product_image" | "library";
+  url: string | null;
+  valid: boolean;
+} {
+  const type =
+    typeValue === "product_image" || typeValue === "library"
+      ? typeValue
+      : "none";
+  const url =
+    typeof urlValue === "string" && /^https:\/\//i.test(urlValue)
+      ? urlValue
+      : null;
+  return {
+    type,
+    url: type === "library" ? url : null,
+    valid: type !== "library" || Boolean(url),
+  };
 }

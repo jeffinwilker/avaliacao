@@ -12,6 +12,8 @@ interface RoutineStepInput {
   delayHours?: unknown;
   messageTemplate?: unknown;
   enabled?: unknown;
+  attachmentType?: unknown;
+  attachmentUrl?: unknown;
 }
 
 export async function PUT(req: NextRequest) {
@@ -48,6 +50,15 @@ export async function PUT(req: NextRequest) {
         : Number(step.delayHours) * 60;
     const messageTemplate =
       typeof step.messageTemplate === "string" ? step.messageTemplate.trim() : "";
+    const attachmentType =
+      step.attachmentType === "product_image" || step.attachmentType === "library"
+        ? step.attachmentType
+        : "none";
+    const attachmentUrl =
+      typeof step.attachmentUrl === "string" &&
+      /^https:\/\//i.test(step.attachmentUrl)
+        ? step.attachmentUrl
+        : null;
 
     if (
       !id ||
@@ -57,7 +68,8 @@ export async function PUT(req: NextRequest) {
       delayMinutes > 43_200 ||
       delays.has(delayMinutes) ||
       !messageTemplate ||
-      messageTemplate.length > 4000
+      messageTemplate.length > 4000 ||
+      (attachmentType === "library" && !attachmentUrl)
     ) {
       return [];
     }
@@ -68,6 +80,8 @@ export async function PUT(req: NextRequest) {
       delay_minutes: delayMinutes,
       message_template: messageTemplate,
       enabled: step.enabled !== false,
+      attachment_type: attachmentType,
+      attachment_url: attachmentType === "library" ? attachmentUrl : null,
     }];
   }).sort((a, b) => a.delay_minutes - b.delay_minutes);
 

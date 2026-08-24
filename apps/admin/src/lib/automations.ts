@@ -3,6 +3,7 @@ import {
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
   DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
   type AbandonedCartMessageStep,
+  type AutomationAttachmentType,
 } from "@avaliacoes/shared";
 import { fetchAllAbandonedCheckouts } from "@/lib/nuvemshop";
 import { sendWhatsApp } from "@/lib/providers/whatsapp";
@@ -21,6 +22,7 @@ interface AutomationMessageInput {
   productsSummary: string;
   link?: string | null;
   scheduledFor: string;
+  attachmentUrl?: string | null;
 }
 
 interface AutomationJob {
@@ -36,6 +38,7 @@ interface AutomationJob {
   attempts: number;
   routine_step_key: string;
   sequence_step: number;
+  attachment_url: string | null;
 }
 
 export interface StoredAbandonedCartStep {
@@ -44,6 +47,8 @@ export interface StoredAbandonedCartStep {
   message_template: string;
   enabled: boolean;
   active_since: string | null;
+  attachment_type: AutomationAttachmentType;
+  attachment_url: string | null;
 }
 
 interface ExistingAutomationMessage {
@@ -234,6 +239,11 @@ export async function syncAbandonedCarts(
               return [];
             }
 
+            const attachmentUrl = resolveCartAttachmentUrl(
+              step,
+              checkout.products
+            );
+
             return [{
               store_id: store.id,
               automation_type: "abandoned_cart" as const,
@@ -249,6 +259,8 @@ export async function syncAbandonedCarts(
               sequence_step: index + 1,
               status: "scheduled" as const,
               error_message: null,
+              attachment_type: attachmentUrl ? "image" : "none",
+              attachment_url: attachmentUrl,
               scheduled_for: new Date(
                 baseTime + step.delay_minutes * 60_000
               ).toISOString(),
@@ -317,6 +329,8 @@ export async function queuePostPurchaseMessage(
         routine_step_key: "default",
         sequence_step: 1,
         scheduled_for: input.scheduledFor,
+        attachment_type: input.attachmentUrl ? "image" : "none",
+        attachment_url: input.attachmentUrl || null,
       },
       {
         onConflict:
@@ -461,6 +475,7 @@ export async function sendScheduledAutomationMessages(
         phone: job.customer_phone,
         message,
         instance: config.whatsapp_instance,
+        mediaUrl: job.attachment_url,
       });
       await admin
         .from("automation_messages")
@@ -515,11 +530,25 @@ export function parseAbandonedCartSequence(
     const template = String(
       candidate.message_template ?? candidate.messageTemplate ?? ""
     ).trim();
+    const attachmentType: AutomationAttachmentType =
+      candidate.attachment_type === "product_image" ||
+      candidate.attachmentType === "product_image"
+        ? "product_image"
+        : candidate.attachment_type === "library" ||
+            candidate.attachmentType === "library"
+          ? "library"
+          : "none";
+    const rawAttachmentUrl = candidate.attachment_url ?? candidate.attachmentUrl;
+    const attachmentUrl =
+      typeof rawAttachmentUrl === "string" && /^https:\/\//i.test(rawAttachmentUrl)
+        ? rawAttachmentUrl
+        : null;
     if (
       !Number.isFinite(delayMinutes) ||
       delayMinutes < 10 ||
       delayMinutes > 43_200 ||
       !template
+      || (attachmentType === "library" && !attachmentUrl)
     ) {
       return [];
     }
@@ -529,6 +558,8 @@ export function parseAbandonedCartSequence(
       delay_minutes: Math.round(delayMinutes),
       message_template: template.slice(0, 4000),
       enabled: candidate.enabled !== false,
+      attachment_type: attachmentType,
+      attachment_url: attachmentType === "library" ? attachmentUrl : null,
       active_since:
         typeof candidate.active_since === "string"
           ? candidate.active_since
@@ -553,6 +584,8 @@ export function parseAbandonedCartSequence(
     ),
     message_template: fallbackTemplate || fallback.messageTemplate,
     enabled: true,
+    attachment_type: fallback.attachmentType,
+    attachment_url: fallback.attachmentUrl,
     active_since: null,
   }];
 }
@@ -591,4 +624,15 @@ function parseMoney(value: string | null | undefined): number | null {
   if (value == null || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function resolveCartAttachmentUrl(
+  step: StoredAbandonedCartStep,
+  products: Array<{ image?: { src?: string | null } | null }>
+): string | null {
+  if (step.attachment_type === "library") return step.attachment_url;
+  if (step.attachment_type === "product_image") {
+    return products.find((product) => product.image?.src)?.image?.src || null;
+  }
+  return null;
 }

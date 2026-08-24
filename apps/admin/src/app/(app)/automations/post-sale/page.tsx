@@ -3,6 +3,7 @@ import {
   DEFAULT_WHATSAPP_TEMPLATE,
 } from "@avaliacoes/shared";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { listAutomationMedia } from "@/lib/automation-media";
 import { AutomationNav } from "../AutomationNav";
 import { RunAutomationsButton } from "../RunAutomationsButton";
 import {
@@ -32,15 +33,16 @@ export default async function PostSalePage({
     return <div className="p-8 text-gray-600">Conecte uma loja primeiro.</div>;
   }
 
-  const [settingsResult, ordersResult, postPurchaseResult, reviewsResult] =
+  const [settingsResult, ordersResult, postPurchaseResult, reviewsResult, mediaAssets] =
     await Promise.all([
       admin
         .from("store_settings")
         .select(
           `whatsapp_enabled, request_delay_days, review_request_delay_minutes,
            whatsapp_template, post_purchase_enabled, post_purchase_delay_hours,
-           post_purchase_delay_minutes,
-           post_purchase_whatsapp_template`
+           post_purchase_delay_minutes, whatsapp_attachment_type,
+           whatsapp_attachment_url, post_purchase_whatsapp_template,
+           post_purchase_attachment_type, post_purchase_attachment_url`
         )
         .eq("store_id", store.id)
         .maybeSingle(),
@@ -72,6 +74,7 @@ export default async function PostSalePage({
         .eq("channel", "whatsapp")
         .order("created_at", { ascending: false })
         .limit(500),
+      listAutomationMedia(admin, store.id),
     ]);
 
   if (settingsResult.error || postPurchaseResult.error) {
@@ -109,6 +112,8 @@ export default async function PostSalePage({
         initialReviewTemplate={
           settings?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE
         }
+        initialReviewAttachmentType={settings?.whatsapp_attachment_type ?? "none"}
+        initialReviewAttachmentUrl={settings?.whatsapp_attachment_url ?? null}
         initialPostPurchaseEnabled={settings?.post_purchase_enabled ?? false}
         initialPostPurchaseDelayMinutes={
           settings?.post_purchase_delay_minutes ??
@@ -118,6 +123,13 @@ export default async function PostSalePage({
           settings?.post_purchase_whatsapp_template ??
           DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE
         }
+        initialPostPurchaseAttachmentType={
+          settings?.post_purchase_attachment_type ?? "none"
+        }
+        initialPostPurchaseAttachmentUrl={
+          settings?.post_purchase_attachment_url ?? null
+        }
+        initialMediaAssets={mediaAssets}
         orders={orders}
         mode={section === "routines" ? "routine" : section}
       />
@@ -251,9 +263,10 @@ function MigrationNotice() {
     <div className="p-8">
       <h1 className="text-2xl font-bold">Pós-venda</h1>
       <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">
-        A estrutura de pós-venda ainda não está disponível no banco. Execute a
-        migrations <code className="font-mono">0006_whatsapp_automations.sql</code> e{" "}
-        <code className="font-mono">0009_flexible_post_sale_delays.sql</code>{" "}
+        A estrutura de pós-venda ainda não está disponível no banco. Execute as
+        migrations <code className="font-mono">0006_whatsapp_automations.sql</code>,{" "}
+        <code className="font-mono">0009_flexible_post_sale_delays.sql</code> e{" "}
+        <code className="font-mono">0010_automation_attachments.sql</code>{" "}
         no Supabase e atualize esta página.
       </div>
     </div>

@@ -2,6 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type {
+  AutomationAttachmentType,
+  AutomationMediaAsset,
+} from "@avaliacoes/shared";
+import { AutomationAttachmentPicker } from "../AutomationAttachmentPicker";
 import { AutomationDelayField } from "../AutomationDelayField";
 
 export interface PostSaleMessageView {
@@ -35,9 +41,14 @@ interface PostSaleDashboardProps {
   initialReviewEnabled: boolean;
   initialReviewDelayMinutes: number;
   initialReviewTemplate: string;
+  initialReviewAttachmentType: AutomationAttachmentType;
+  initialReviewAttachmentUrl: string | null;
   initialPostPurchaseEnabled: boolean;
   initialPostPurchaseDelayMinutes: number;
   initialPostPurchaseTemplate: string;
+  initialPostPurchaseAttachmentType: AutomationAttachmentType;
+  initialPostPurchaseAttachmentUrl: string | null;
+  initialMediaAssets: AutomationMediaAsset[];
   orders: PostSaleOrderView[];
   mode?: "all" | "routine" | "messages" | "orders";
 }
@@ -52,9 +63,14 @@ export function PostSaleDashboard({
   initialReviewEnabled,
   initialReviewDelayMinutes,
   initialReviewTemplate,
+  initialReviewAttachmentType,
+  initialReviewAttachmentUrl,
   initialPostPurchaseEnabled,
   initialPostPurchaseDelayMinutes,
   initialPostPurchaseTemplate,
+  initialPostPurchaseAttachmentType,
+  initialPostPurchaseAttachmentUrl,
+  initialMediaAssets,
   orders,
   mode = "orders",
 }: PostSaleDashboardProps) {
@@ -64,6 +80,12 @@ export function PostSaleDashboard({
     initialReviewDelayMinutes
   );
   const [reviewTemplate, setReviewTemplate] = useState(initialReviewTemplate);
+  const [reviewAttachmentType, setReviewAttachmentType] = useState(
+    initialReviewAttachmentType
+  );
+  const [reviewAttachmentUrl, setReviewAttachmentUrl] = useState(
+    initialReviewAttachmentUrl
+  );
   const [postPurchaseEnabled, setPostPurchaseEnabled] = useState(
     initialPostPurchaseEnabled
   );
@@ -73,6 +95,13 @@ export function PostSaleDashboard({
   const [postPurchaseTemplate, setPostPurchaseTemplate] = useState(
     initialPostPurchaseTemplate
   );
+  const [postPurchaseAttachmentType, setPostPurchaseAttachmentType] = useState(
+    initialPostPurchaseAttachmentType
+  );
+  const [postPurchaseAttachmentUrl, setPostPurchaseAttachmentUrl] = useState(
+    initialPostPurchaseAttachmentUrl
+  );
+  const [mediaAssets, setMediaAssets] = useState(initialMediaAssets);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{
@@ -117,9 +146,13 @@ export function PostSaleDashboard({
         reviewEnabled,
         reviewDelayMinutes,
         reviewTemplate,
+        reviewAttachmentType,
+        reviewAttachmentUrl,
         postPurchaseEnabled,
         postPurchaseDelayMinutes,
         postPurchaseTemplate,
+        postPurchaseAttachmentType,
+        postPurchaseAttachmentUrl,
       }),
     });
     const result = await response.json().catch(() => ({}));
@@ -180,7 +213,8 @@ export function PostSaleDashboard({
         <div className="grid gap-5 p-5 xl:grid-cols-2">
           {showRoutine ? (
             <>
-              <RoutineCard
+              <PostSaleFlowCard
+                trigger="Pedido pago"
                 title="Pedido de avaliação"
                 description="Envia um convite por produto depois da compra."
                 enabled={reviewEnabled}
@@ -200,9 +234,11 @@ export function PostSaleDashboard({
                     onChange={setReviewDelayMinutes}
                   />
                 }
+                attachmentType={reviewAttachmentType}
               />
 
-              <RoutineCard
+              <PostSaleFlowCard
+                trigger="Pedido criado"
                 title="Confirmação de pedido"
                 description="Dispara quando um novo pedido é criado, antes da confirmação do pagamento."
                 enabled={postPurchaseEnabled}
@@ -222,11 +258,12 @@ export function PostSaleDashboard({
                     onChange={setPostPurchaseDelayMinutes}
                   />
                 }
+                attachmentType={postPurchaseAttachmentType}
               >
                 <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
                   Com <strong>0 minutos</strong>, a mensagem sai no próximo processamento da fila.
                 </div>
-              </RoutineCard>
+              </PostSaleFlowCard>
             </>
           ) : (
             <>
@@ -242,6 +279,22 @@ export function PostSaleDashboard({
                   onChange={setReviewTemplate}
                   variables={["{{nome}}", "{{produto}}", "{{link}}", "{{loja}}"]}
                   label="Mensagem do pedido de avaliação"
+                />
+                <AutomationAttachmentPicker
+                  storeId={storeId}
+                  attachmentType={reviewAttachmentType}
+                  attachmentUrl={reviewAttachmentUrl}
+                  assets={mediaAssets}
+                  onChange={(attachmentType, attachmentUrl) => {
+                    setReviewAttachmentType(attachmentType);
+                    setReviewAttachmentUrl(attachmentUrl);
+                  }}
+                  onAssetUploaded={(asset) =>
+                    setMediaAssets((current) => [
+                      asset,
+                      ...current.filter((item) => item.path !== asset.path),
+                    ])
+                  }
                 />
               </MessageTemplateCard>
 
@@ -260,6 +313,22 @@ export function PostSaleDashboard({
                     "{{link}}",
                   ]}
                   label="Mensagem de confirmação do pedido"
+                />
+                <AutomationAttachmentPicker
+                  storeId={storeId}
+                  attachmentType={postPurchaseAttachmentType}
+                  attachmentUrl={postPurchaseAttachmentUrl}
+                  assets={mediaAssets}
+                  onChange={(attachmentType, attachmentUrl) => {
+                    setPostPurchaseAttachmentType(attachmentType);
+                    setPostPurchaseAttachmentUrl(attachmentUrl);
+                  }}
+                  onAssetUploaded={(asset) =>
+                    setMediaAssets((current) => [
+                      asset,
+                      ...current.filter((item) => item.path !== asset.path),
+                    ])
+                  }
                 />
               </MessageTemplateCard>
             </>
@@ -381,45 +450,84 @@ export function PostSaleDashboard({
   );
 }
 
-function RoutineCard({
+function PostSaleFlowCard({
+  trigger,
   title,
   description,
   enabled,
   onEnabledChange,
   timing,
+  attachmentType,
   children,
 }: {
+  trigger: string;
   title: string;
   description: string;
   enabled: boolean;
   onEnabledChange: (value: boolean) => void;
   timing: React.ReactNode;
+  attachmentType: AutomationAttachmentType;
   children?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold text-gray-950">{title}</h3>
-            <span
-              className={`rounded-full px-2 py-1 text-xs font-medium ${
-                enabled
-                  ? "bg-green-100 text-green-800"
-                  : "bg-gray-200 text-gray-600"
-              }`}
-            >
-              {enabled ? "Ativa" : "Pausada"}
-            </span>
-          </div>
-          <p className="mt-1 text-sm leading-5 text-gray-500">{description}</p>
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-[radial-gradient(#d4d4d8_1px,transparent_1px)] bg-[size:20px_20px] p-5">
+      <div className="mx-auto flex max-w-lg flex-col items-center">
+        <div className="w-full rounded-2xl border-2 border-emerald-400 bg-white p-4 shadow-sm">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Gatilho</div>
+          <div className="mt-1 font-semibold text-zinc-950">{trigger}</div>
         </div>
-        <Toggle value={enabled} onChange={onEnabledChange} />
+        <FlowArrow />
+        <div className="w-full rounded-2xl border border-violet-200 bg-violet-50 p-4 shadow-sm">
+          <div className="mb-3 text-[10px] font-bold uppercase tracking-wider text-violet-700">Espera</div>
+          {timing}
+        </div>
+        <FlowArrow />
+        <div className={`w-full rounded-2xl border-2 bg-white shadow-sm ${enabled ? "border-blue-400" : "border-zinc-300 opacity-70"}`}>
+          <div className="flex items-start justify-between gap-4 border-b border-zinc-100 p-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold text-gray-950">{title}</h3>
+                <span className={`rounded-full px-2 py-1 text-xs font-medium ${enabled ? "bg-green-100 text-green-800" : "bg-gray-200 text-gray-600"}`}>
+                  {enabled ? "Ativa" : "Pausada"}
+                </span>
+              </div>
+              <p className="mt-1 text-sm leading-5 text-gray-500">{description}</p>
+            </div>
+            <Toggle value={enabled} onChange={onEnabledChange} />
+          </div>
+          <div className="p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
+                {postSaleAttachmentLabel(attachmentType)}
+              </span>
+              <Link
+                href="/automations/post-sale?section=messages"
+                className="text-xs font-semibold text-brand-900 underline"
+              >
+                Editar mensagem
+              </Link>
+            </div>
+            {children}
+          </div>
+        </div>
       </div>
-      <div className="my-4">{timing}</div>
-      {children}
     </div>
   );
+}
+
+function FlowArrow() {
+  return (
+    <div className="flex h-9 flex-col items-center">
+      <span className="h-6 w-px bg-zinc-300" />
+      <span className="h-0 w-0 border-x-[5px] border-t-[6px] border-x-transparent border-t-zinc-400" />
+    </div>
+  );
+}
+
+function postSaleAttachmentLabel(type: AutomationAttachmentType): string {
+  if (type === "product_image") return "Imagem do produto";
+  if (type === "library") return "Imagem da biblioteca";
+  return "Sem anexo";
 }
 
 function MessageTemplateCard({

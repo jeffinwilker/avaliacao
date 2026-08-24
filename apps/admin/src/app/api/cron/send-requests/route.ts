@@ -43,7 +43,7 @@ async function sendReviewRequests(
       `id, channel, token, store_id, attempts,
        store:stores (name, domain),
        order:orders (customer_name, customer_email, customer_phone),
-       product:products (name, external_product_id, url)`
+       product:products (name, external_product_id, url, image_url)`
     )
     .eq("status", "scheduled")
     .lte("scheduled_for", new Date().toISOString())
@@ -57,7 +57,8 @@ async function sendReviewRequests(
   const { data: settings } = await admin
     .from("store_settings")
     .select(
-      "store_id, email_subject, email_template, whatsapp_template, whatsapp_instance"
+      `store_id, email_subject, email_template, whatsapp_template,
+       whatsapp_instance, whatsapp_attachment_type, whatsapp_attachment_url`
     )
     .in("store_id", storeIds);
   const settingsByStore = new Map(
@@ -79,6 +80,7 @@ async function sendReviewRequests(
       name: string;
       external_product_id: string;
       url: string | null;
+      image_url: string | null;
     };
 
     const store = pickRelation<Store>(request.store);
@@ -134,6 +136,12 @@ async function sendReviewRequests(
             config?.whatsapp_template || DEFAULT_WHATSAPP_TEMPLATE
           ),
           instance: config?.whatsapp_instance,
+          mediaUrl:
+            config?.whatsapp_attachment_type === "library"
+              ? config.whatsapp_attachment_url
+              : config?.whatsapp_attachment_type === "product_image"
+                ? product.image_url
+                : null,
         });
       } else {
         throw new Error("Canal sem destinatário disponível");
