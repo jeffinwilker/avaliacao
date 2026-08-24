@@ -122,10 +122,12 @@ crontab -e
 Cola no fim:
 
 ```
-*/30 * * * * curl -s -X POST -H "x-cron-secret: SEU_CRON_SECRET" http://127.0.0.1:3002/api/cron/send-requests > /dev/null 2>&1
+*/5 * * * * curl -s -X POST -H "x-cron-secret: SEU_CRON_SECRET" http://127.0.0.1:3002/api/cron/send-requests > /dev/null 2>&1
 ```
 
 Substitua `SEU_CRON_SECRET` pelo valor de `CRON_SECRET` do `.env.local`.
+O intervalo de 5 minutos permite que rotinas de carrinho configuradas para
+10 minutos sejam processadas sem um atraso grande do cron.
 
 ## Atualizações futuras
 

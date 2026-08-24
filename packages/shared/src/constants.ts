@@ -43,7 +43,7 @@ Se precisar de ajuda, é só responder esta mensagem. 💛`;
 export const DEFAULT_ABANDONED_CART_SEQUENCE = [
   {
     id: "step-1",
-    delayHours: 8,
+    delayMinutes: 480,
     messageTemplate: DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
     enabled: true,
   },

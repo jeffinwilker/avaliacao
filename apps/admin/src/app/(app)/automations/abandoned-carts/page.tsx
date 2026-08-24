@@ -67,7 +67,7 @@ export default async function AbandonedCartsPage() {
       DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE
   ).map((step) => ({
     id: step.id,
-    delayHours: step.delay_hours,
+    delayMinutes: step.delay_minutes,
     messageTemplate: step.message_template,
     enabled: step.enabled,
   }));

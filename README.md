@@ -56,9 +56,11 @@ Para automações de carrinho abandonado e pós-venda, o aplicativo precisa da
 permissão `read_orders`, dos webhooks de pedido registrados e do cron configurado
 conforme `deploy/README.md`.
 
-A tela de automações armazena os carrinhos identificados dos últimos 30 dias e
-permite montar uma rotina com até cinco mensagens de WhatsApp. Para usar essa
-versão, execute também a migration `0007_abandoned_cart_routines.sql`.
+As telas de automação separam carrinhos abandonados e pós-venda. A recuperação
+armazena os carrinhos identificados dos últimos 30 dias e permite montar uma
+rotina com até cinco mensagens de WhatsApp, com atrasos a partir de 10 minutos.
+Para usar essa versão, execute também a migration
+`0007_abandoned_cart_routines.sql`.
 
 Cole no tema da loja (Configurações → HTML/CSS → produto.tpl):
 

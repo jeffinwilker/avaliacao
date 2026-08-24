@@ -40,7 +40,7 @@ interface AutomationJob {
 
 export interface StoredAbandonedCartStep {
   id: string;
-  delay_hours: number;
+  delay_minutes: number;
   message_template: string;
   enabled: boolean;
 }
@@ -242,7 +242,7 @@ export async function syncAbandonedCarts(
               status: "scheduled" as const,
               error_message: null,
               scheduled_for: new Date(
-                baseTime + step.delay_hours * 3600_000
+                baseTime + step.delay_minutes * 60_000
               ).toISOString(),
             }];
           });
@@ -498,30 +498,45 @@ export function parseAbandonedCartSequence(
     if (seen.has(id)) return [];
     seen.add(id);
 
-    const delay = Number(candidate.delay_hours ?? candidate.delayHours);
+    const explicitMinutes = candidate.delay_minutes ?? candidate.delayMinutes;
+    const legacyHours = candidate.delay_hours ?? candidate.delayHours;
+    const delayMinutes =
+      explicitMinutes != null
+        ? Number(explicitMinutes)
+        : Number(legacyHours) * 60;
     const template = String(
       candidate.message_template ?? candidate.messageTemplate ?? ""
     ).trim();
-    if (!Number.isFinite(delay) || delay < 6 || delay > 720 || !template) {
+    if (
+      !Number.isFinite(delayMinutes) ||
+      delayMinutes < 10 ||
+      delayMinutes > 43_200 ||
+      !template
+    ) {
       return [];
     }
 
     return [{
       id,
-      delay_hours: Math.round(delay),
+      delay_minutes: Math.round(delayMinutes),
       message_template: template.slice(0, 4000),
       enabled: candidate.enabled !== false,
     }];
   });
 
   if (parsed.length) {
-    return parsed.slice(0, 5).sort((a, b) => a.delay_hours - b.delay_hours);
+    return parsed
+      .slice(0, 5)
+      .sort((a, b) => a.delay_minutes - b.delay_minutes);
   }
 
   const fallback = DEFAULT_ABANDONED_CART_SEQUENCE[0];
   return [{
     id: fallback.id,
-    delay_hours: Math.max(6, Math.min(720, Math.round(fallbackDelay || 8))),
+    delay_minutes: Math.max(
+      10,
+      Math.min(43_200, Math.round((fallbackDelay || 8) * 60))
+    ),
     message_template: fallbackTemplate || fallback.messageTemplate,
     enabled: true,
   }];

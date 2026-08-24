@@ -45,7 +45,7 @@ export interface StoreSettings {
 
 export interface AbandonedCartMessageStep {
   id: string;
-  delayHours: number;
+  delayMinutes: number;
   messageTemplate: string;
   enabled: boolean;
 }

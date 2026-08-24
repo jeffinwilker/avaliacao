@@ -115,12 +115,12 @@ export function AbandonedCartDashboard({
 
   function addStep() {
     if (steps.length >= 5) return;
-    const lastDelay = Math.max(...steps.map((step) => step.delayHours), 6);
+    const lastDelay = Math.max(...steps.map((step) => step.delayMinutes), 10);
     setSteps((current) => [
       ...current,
       {
         id: `step-${Date.now().toString(36)}`,
-        delayHours: Math.min(720, lastDelay + 24),
+        delayMinutes: Math.min(43_200, lastDelay + 1_440),
         messageTemplate: followUpTemplate,
         enabled: true,
       },
@@ -151,7 +151,7 @@ export function AbandonedCartDashboard({
     setSteps(
       (json.steps ?? []).map((step: Record<string, unknown>) => ({
         id: String(step.id),
-        delayHours: Number(step.delay_hours),
+        delayMinutes: Number(step.delay_minutes),
         messageTemplate: String(step.message_template),
         enabled: step.enabled !== false,
       }))
@@ -179,7 +179,7 @@ export function AbandonedCartDashboard({
               </span>
             </div>
             <p className="text-sm text-gray-500 mt-1">
-              Crie até 5 tentativas. O horário é contado a partir da criação do checkout.
+              Crie até 5 tentativas. O tempo é contado a partir da criação do checkout.
             </p>
           </div>
           <Toggle value={enabled} onChange={setEnabled} label="Ativar rotina" />
@@ -193,18 +193,12 @@ export function AbandonedCartDashboard({
                   <span className="h-8 w-8 rounded-full bg-brand-900 text-white flex items-center justify-center text-sm font-bold">
                     {index + 1}
                   </span>
-                  <label className="text-sm font-medium flex items-center gap-2">
-                    Enviar após
-                    <input
-                      type="number"
-                      min={6}
-                      max={720}
-                      value={step.delayHours}
-                      onChange={(event) => updateStep(step.id, { delayHours: Number(event.target.value) })}
-                      className="w-24 border border-gray-300 bg-white rounded-lg px-3 py-2"
-                    />
-                    horas
-                  </label>
+                  <DelayField
+                    delayMinutes={step.delayMinutes}
+                    onChange={(delayMinutes) =>
+                      updateStep(step.id, { delayMinutes })
+                    }
+                  />
                 </div>
                 <div className="flex items-center gap-3">
                   <Toggle
@@ -481,6 +475,83 @@ function SummaryCard({ label, value, tone }: { label: string; value: number; ton
       <div className="text-3xl font-bold mt-1">{value}</div>
     </div>
   );
+}
+
+type DelayUnit = "minutes" | "hours" | "days";
+
+function DelayField({
+  delayMinutes,
+  onChange,
+}: {
+  delayMinutes: number;
+  onChange: (delayMinutes: number) => void;
+}) {
+  const [unit, setUnit] = useState<DelayUnit>(() => preferredDelayUnit(delayMinutes));
+  const factor = unit === "days" ? 1_440 : unit === "hours" ? 60 : 1;
+  const amount = Math.round((delayMinutes / factor) * 100) / 100;
+
+  const presets = [
+    { label: "10 min", value: 10 },
+    { label: "30 min", value: 30 },
+    { label: "1 h", value: 60 },
+    { label: "4 h", value: 240 },
+    { label: "1 dia", value: 1_440 },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
+        Enviar após
+        <input
+          type="number"
+          min={unit === "minutes" ? 10 : unit === "hours" ? 0.17 : 0.01}
+          max={unit === "minutes" ? 43_200 : unit === "hours" ? 720 : 30}
+          step={unit === "minutes" ? 1 : unit === "hours" ? 0.5 : 0.25}
+          value={amount}
+          onChange={(event) => {
+            const next = Math.round(Number(event.target.value) * factor);
+            onChange(next);
+          }}
+          className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2"
+        />
+        <select
+          value={unit}
+          onChange={(event) => setUnit(event.target.value as DelayUnit)}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2"
+          aria-label="Unidade do tempo de espera"
+        >
+          <option value="minutes">minutos</option>
+          <option value="hours">horas</option>
+          <option value="days">dias</option>
+        </select>
+      </label>
+      <div className="flex flex-wrap gap-1" aria-label="Atalhos de tempo">
+        {presets.map((preset) => (
+          <button
+            type="button"
+            key={preset.value}
+            onClick={() => {
+              setUnit(preferredDelayUnit(preset.value));
+              onChange(preset.value);
+            }}
+            className={`rounded-md border px-2 py-1 text-xs transition ${
+              delayMinutes === preset.value
+                ? "border-brand-900 bg-brand-900 text-white"
+                : "border-gray-300 bg-white text-gray-600 hover:bg-gray-100"
+            }`}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function preferredDelayUnit(delayMinutes: number): DelayUnit {
+  if (delayMinutes >= 1_440 && delayMinutes % 1_440 === 0) return "days";
+  if (delayMinutes >= 60 && delayMinutes % 60 === 0) return "hours";
+  return "minutes";
 }
 
 function Toggle({ value, onChange, label, compact = false }: { value: boolean; onChange: (value: boolean) => void; label: string; compact?: boolean }) {

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 
 interface RoutineStepInput {
   id?: unknown;
+  delayMinutes?: unknown;
   delayHours?: unknown;
   messageTemplate?: unknown;
   enabled?: unknown;
@@ -38,37 +39,40 @@ export async function PUT(req: NextRequest) {
   const steps = body.steps.flatMap((step, index) => {
     const rawId = typeof step.id === "string" ? step.id : `step-${index + 1}`;
     const id = /^[a-zA-Z0-9_-]{1,80}$/.test(rawId) ? rawId : "";
-    const delayHours = Number(step.delayHours);
+    const delayMinutes =
+      step.delayMinutes != null
+        ? Number(step.delayMinutes)
+        : Number(step.delayHours) * 60;
     const messageTemplate =
       typeof step.messageTemplate === "string" ? step.messageTemplate.trim() : "";
 
     if (
       !id ||
       ids.has(id) ||
-      !Number.isInteger(delayHours) ||
-      delayHours < 6 ||
-      delayHours > 720 ||
-      delays.has(delayHours) ||
+      !Number.isInteger(delayMinutes) ||
+      delayMinutes < 10 ||
+      delayMinutes > 43_200 ||
+      delays.has(delayMinutes) ||
       !messageTemplate ||
       messageTemplate.length > 4000
     ) {
       return [];
     }
     ids.add(id);
-    delays.add(delayHours);
+    delays.add(delayMinutes);
     return [{
       id,
-      delay_hours: delayHours,
+      delay_minutes: delayMinutes,
       message_template: messageTemplate,
       enabled: step.enabled !== false,
     }];
-  }).sort((a, b) => a.delay_hours - b.delay_hours);
+  }).sort((a, b) => a.delay_minutes - b.delay_minutes);
 
   if (steps.length !== body.steps.length) {
     return NextResponse.json(
       {
         error:
-          "Revise a rotina: os horários devem ser únicos, entre 6 e 720 horas, e todas as mensagens precisam ter texto.",
+          "Revise a rotina: os horários devem ser únicos, entre 10 minutos e 30 dias, e todas as mensagens precisam ter texto.",
       },
       { status: 400 }
     );
@@ -90,7 +94,11 @@ export async function PUT(req: NextRequest) {
       store_id: storeId,
       abandoned_cart_enabled: enabled,
       abandoned_cart_sequence: steps,
-      abandoned_cart_delay_hours: Math.min(firstStep.delay_hours, 168),
+      // Campo legado: a sequência em JSON é a fonte de verdade em minutos.
+      abandoned_cart_delay_hours: Math.max(
+        6,
+        Math.min(168, Math.ceil(firstStep.delay_minutes / 60))
+      ),
       abandoned_cart_whatsapp_template: firstStep.message_template,
     },
     { onConflict: "store_id" }
