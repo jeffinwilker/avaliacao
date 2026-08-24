@@ -100,18 +100,47 @@ export function parseEvolutionConnection(
   };
 }
 
+export function evolutionInstanceExists(payload: unknown, instanceName: string): boolean {
+  const record = asRecord(payload);
+  const instances = Array.isArray(payload)
+    ? payload
+    : Array.isArray(record?.instances)
+      ? record.instances
+      : [];
+
+  return instances.some((value) => {
+    const item = asRecord(value);
+    const nested = asRecord(item?.instance);
+    const name = firstString(
+      item?.name,
+      item?.instanceName,
+      nested?.name,
+      nested?.instanceName
+    );
+    return name === instanceName;
+  });
+}
+
 function extractEvolutionError(payload: unknown, status: number): string {
   const record = asRecord(payload);
   const response = asRecord(record?.response);
-  const message = firstString(
-    record?.message,
-    record?.error,
-    response?.message,
-    typeof payload === "string" ? payload : undefined
-  );
+  const message =
+    messageFrom(response?.message) ??
+    messageFrom(record?.message) ??
+    messageFrom(record?.error) ??
+    messageFrom(payload);
   return message
     ? `Evolution API: ${message}`
     : `Evolution API respondeu com erro ${status}`;
+}
+
+function messageFrom(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (Array.isArray(value)) {
+    const messages = value.flatMap((item) => messageFrom(item) ?? []);
+    return messages.length ? messages.join("; ") : undefined;
+  }
+  return undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -125,4 +154,3 @@ function firstString(...values: unknown[]): string | undefined {
     (value): value is string => typeof value === "string" && value.length > 0
   );
 }
-

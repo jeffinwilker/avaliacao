@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  evolutionInstanceExists,
   evolutionRequest,
   isEvolutionServerConfigured,
   parseEvolutionConnection,
@@ -83,6 +84,12 @@ export async function POST(req: NextRequest) {
       }
 
       const instance = buildInstanceName(context.externalStoreId, context.storeId);
+      const currentInstances = await evolutionRequest("instance/fetchInstances");
+      if (evolutionInstanceExists(currentInstances, instance)) {
+        await saveInstanceName(context.storeId, instance);
+        return connectInstance(instance);
+      }
+
       const payload = await evolutionRequest("instance/create", {
         method: "POST",
         body: {
@@ -92,12 +99,7 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      const admin = createAdminClient();
-      const { error } = await admin.from("store_settings").upsert(
-        { store_id: context.storeId, whatsapp_instance: instance },
-        { onConflict: "store_id" }
-      );
-      if (error) throw error;
+      await saveInstanceName(context.storeId, instance);
 
       return NextResponse.json({
         serverConfigured: true,
@@ -123,6 +125,15 @@ export async function POST(req: NextRequest) {
       { status: 502 }
     );
   }
+}
+
+async function saveInstanceName(storeId: string, instance: string) {
+  const admin = createAdminClient();
+  const { error } = await admin.from("store_settings").upsert(
+    { store_id: storeId, whatsapp_instance: instance },
+    { onConflict: "store_id" }
+  );
+  if (error) throw error;
 }
 
 async function connectInstance(instance: string) {
@@ -174,4 +185,3 @@ function buildInstanceName(externalStoreId: string, storeId: string): string {
   const suffix = externalStoreId.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 40);
   return `avaliacoes-${suffix || storeId.slice(0, 8)}`;
 }
-
