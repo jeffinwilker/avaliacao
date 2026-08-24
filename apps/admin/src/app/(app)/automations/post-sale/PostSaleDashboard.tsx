@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AutomationDelayField } from "../AutomationDelayField";
 
 export interface PostSaleMessageView {
   status: string;
@@ -32,12 +33,13 @@ export interface PostSaleOrderView {
 interface PostSaleDashboardProps {
   storeId: string;
   initialReviewEnabled: boolean;
-  initialReviewDelayDays: number;
+  initialReviewDelayMinutes: number;
   initialReviewTemplate: string;
   initialPostPurchaseEnabled: boolean;
-  initialPostPurchaseDelayHours: number;
+  initialPostPurchaseDelayMinutes: number;
   initialPostPurchaseTemplate: string;
   orders: PostSaleOrderView[];
+  mode?: "all" | "routine" | "messages" | "orders";
 }
 
 const dateTime = new Intl.DateTimeFormat("pt-BR", {
@@ -48,22 +50,25 @@ const dateTime = new Intl.DateTimeFormat("pt-BR", {
 export function PostSaleDashboard({
   storeId,
   initialReviewEnabled,
-  initialReviewDelayDays,
+  initialReviewDelayMinutes,
   initialReviewTemplate,
   initialPostPurchaseEnabled,
-  initialPostPurchaseDelayHours,
+  initialPostPurchaseDelayMinutes,
   initialPostPurchaseTemplate,
   orders,
+  mode = "orders",
 }: PostSaleDashboardProps) {
   const router = useRouter();
   const [reviewEnabled, setReviewEnabled] = useState(initialReviewEnabled);
-  const [reviewDelayDays, setReviewDelayDays] = useState(initialReviewDelayDays);
+  const [reviewDelayMinutes, setReviewDelayMinutes] = useState(
+    initialReviewDelayMinutes
+  );
   const [reviewTemplate, setReviewTemplate] = useState(initialReviewTemplate);
   const [postPurchaseEnabled, setPostPurchaseEnabled] = useState(
     initialPostPurchaseEnabled
   );
-  const [postPurchaseDelayHours, setPostPurchaseDelayHours] = useState(
-    initialPostPurchaseDelayHours
+  const [postPurchaseDelayMinutes, setPostPurchaseDelayMinutes] = useState(
+    initialPostPurchaseDelayMinutes
   );
   const [postPurchaseTemplate, setPostPurchaseTemplate] = useState(
     initialPostPurchaseTemplate
@@ -74,6 +79,9 @@ export function PostSaleDashboard({
     type: "ok" | "error";
     text: string;
   } | null>(null);
+  const showRoutine = mode === "all" || mode === "routine";
+  const showMessages = mode === "all" || mode === "messages";
+  const showOrders = mode === "all" || mode === "orders";
 
   const filteredOrders = useMemo(() => {
     const search = query.trim().toLocaleLowerCase("pt-BR");
@@ -107,10 +115,10 @@ export function PostSaleDashboard({
       body: JSON.stringify({
         storeId,
         reviewEnabled,
-        reviewDelayDays,
+        reviewDelayMinutes,
         reviewTemplate,
         postPurchaseEnabled,
-        postPurchaseDelayHours,
+        postPurchaseDelayMinutes,
         postPurchaseTemplate,
       }),
     });
@@ -123,18 +131,25 @@ export function PostSaleDashboard({
       });
       return;
     }
-    setFeedback({ type: "ok", text: "Automações de pós-venda salvas." });
+    setFeedback({
+      type: "ok",
+      text: showMessages ? "Mensagens salvas." : "Rotinas salvas.",
+    });
     router.refresh();
   }
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+      {(showRoutine || showMessages) && <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
           <div>
-            <h2 className="text-lg font-semibold">Rotinas de pós-venda</h2>
+            <h2 className="text-lg font-semibold">
+              {showMessages ? "Mensagens de pós-venda" : "Rotinas de pós-venda"}
+            </h2>
             <p className="mt-1 text-sm text-gray-500">
-              Configure a confirmação do pedido e o convite que leva ao formulário de avaliação.
+              {showMessages
+                ? "Edite os textos. A ativação e os horários ficam na página Rotinas."
+                : "Ative os envios e escolha quando cada mensagem deve sair."}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -153,77 +168,106 @@ export function PostSaleDashboard({
               disabled={saving}
               className="rounded-lg bg-brand-900 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
             >
-              {saving ? "Salvando..." : "Salvar pós-venda"}
+              {saving
+                ? "Salvando..."
+                : showMessages
+                  ? "Salvar mensagens"
+                  : "Salvar rotinas"}
             </button>
           </div>
         </div>
 
         <div className="grid gap-5 p-5 xl:grid-cols-2">
-          <RoutineCard
-            title="Pedido de avaliação"
-            description="Envia um convite por produto com acesso direto ao formulário móvel, foto e dados do cliente."
-            enabled={reviewEnabled}
-            onEnabledChange={setReviewEnabled}
-            timing={
-              <TimingField
-                label="Enviar após"
-                value={reviewDelayDays}
-                min={1}
-                max={90}
-                suffix="dias da compra"
-                onChange={setReviewDelayDays}
+          {showRoutine ? (
+            <>
+              <RoutineCard
+                title="Pedido de avaliação"
+                description="Envia um convite por produto depois da compra."
+                enabled={reviewEnabled}
+                onEnabledChange={setReviewEnabled}
+                timing={
+                  <AutomationDelayField
+                    delayMinutes={reviewDelayMinutes}
+                    minMinutes={10}
+                    maxMinutes={129_600}
+                    presets={[
+                      { label: "1 h", value: 60 },
+                      { label: "1 dia", value: 1_440 },
+                      { label: "3 dias", value: 4_320 },
+                      { label: "7 dias", value: 10_080 },
+                      { label: "14 dias", value: 20_160 },
+                    ]}
+                    onChange={setReviewDelayMinutes}
+                  />
+                }
               />
-            }
-          >
-            <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-5 text-emerald-900">
-              A variável <strong>{"{{link}}"}</strong> abre a nova página de avaliação
-              com o produto correto e identifica a resposta como compra verificada.
-            </div>
-            <TemplateEditor
-              value={reviewTemplate}
-              onChange={setReviewTemplate}
-              variables={["{{nome}}", "{{produto}}", "{{link}}", "{{loja}}"]}
-              label="Mensagem do pedido de avaliação"
-            />
-          </RoutineCard>
 
-          <RoutineCard
-            title="Confirmação de pedido"
-            description="Enviada quando um novo pedido é criado, antes mesmo da confirmação do pagamento."
-            enabled={postPurchaseEnabled}
-            onEnabledChange={setPostPurchaseEnabled}
-            timing={
-              <TimingField
-                label="Enviar após"
-                value={postPurchaseDelayHours}
-                min={0}
-                max={720}
-                suffix="horas após o pedido"
-                onChange={setPostPurchaseDelayHours}
-              />
-            }
-          >
-            <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
-              Use <strong>0 horas</strong> para enviar no próximo processamento da fila.
-              Com o agendamento a cada 5 minutos, a confirmação chega em até cerca de 5 minutos.
-            </div>
-            <TemplateEditor
-              value={postPurchaseTemplate}
-              onChange={setPostPurchaseTemplate}
-              variables={[
-                "{{nome}}",
-                "{{pedido}}",
-                "{{produtos}}",
-                "{{loja}}",
-                "{{link}}",
-              ]}
-              label="Mensagem de confirmação do pedido"
-            />
-          </RoutineCard>
+              <RoutineCard
+                title="Confirmação de pedido"
+                description="Dispara quando um novo pedido é criado, antes da confirmação do pagamento."
+                enabled={postPurchaseEnabled}
+                onEnabledChange={setPostPurchaseEnabled}
+                timing={
+                  <AutomationDelayField
+                    delayMinutes={postPurchaseDelayMinutes}
+                    minMinutes={0}
+                    maxMinutes={43_200}
+                    presets={[
+                      { label: "Imediato", value: 0 },
+                      { label: "10 min", value: 10 },
+                      { label: "30 min", value: 30 },
+                      { label: "1 h", value: 60 },
+                      { label: "1 dia", value: 1_440 },
+                    ]}
+                    onChange={setPostPurchaseDelayMinutes}
+                  />
+                }
+              >
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
+                  Com <strong>0 minutos</strong>, a mensagem sai no próximo processamento da fila.
+                </div>
+              </RoutineCard>
+            </>
+          ) : (
+            <>
+              <MessageTemplateCard
+                title="Pedido de avaliação"
+                description="O link abre o formulário móvel com o produto correto e identifica a compra."
+              >
+                <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-5 text-emerald-900">
+                  Mantenha a variável <strong>{"{{link}}"}</strong> para levar o cliente diretamente à avaliação.
+                </div>
+                <TemplateEditor
+                  value={reviewTemplate}
+                  onChange={setReviewTemplate}
+                  variables={["{{nome}}", "{{produto}}", "{{link}}", "{{loja}}"]}
+                  label="Mensagem do pedido de avaliação"
+                />
+              </MessageTemplateCard>
+
+              <MessageTemplateCard
+                title="Confirmação de pedido"
+                description="Avisa o cliente que o pedido foi recebido."
+              >
+                <TemplateEditor
+                  value={postPurchaseTemplate}
+                  onChange={setPostPurchaseTemplate}
+                  variables={[
+                    "{{nome}}",
+                    "{{pedido}}",
+                    "{{produtos}}",
+                    "{{loja}}",
+                    "{{link}}",
+                  ]}
+                  label="Mensagem de confirmação do pedido"
+                />
+              </MessageTemplateCard>
+            </>
+          )}
         </div>
-      </section>
+      </section>}
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      {showOrders && <><div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <SummaryCard label="Pedidos acompanhados" value={counts.orders} />
         <SummaryCard label="Avaliações agendadas" value={counts.scheduled} tone="amber" />
         <SummaryCard label="Convites enviados" value={counts.sent} tone="blue" />
@@ -332,7 +376,7 @@ export function PostSaleDashboard({
               : "Nenhum pedido entrou na rotina de pós-venda ainda."}
           </div>
         )}
-      </section>
+      </section></>}
     </div>
   );
 }
@@ -350,7 +394,7 @@ function RoutineCard({
   enabled: boolean;
   onEnabledChange: (value: boolean) => void;
   timing: React.ReactNode;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-5">
@@ -378,34 +422,21 @@ function RoutineCard({
   );
 }
 
-function TimingField({
-  label,
-  value,
-  min,
-  max,
-  suffix,
-  onChange,
+function MessageTemplateCard({
+  title,
+  description,
+  children,
 }: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  suffix: string;
-  onChange: (value: number) => void;
+  title: string;
+  description: string;
+  children: React.ReactNode;
 }) {
   return (
-    <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700">
-      {label}
-      <input
-        type="number"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2"
-      />
-      {suffix}
-    </label>
+    <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-5">
+      <h3 className="font-semibold text-gray-950">{title}</h3>
+      <p className="mb-4 mt-1 text-sm leading-5 text-gray-500">{description}</p>
+      {children}
+    </div>
   );
 }
 

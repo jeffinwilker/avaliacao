@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { AppIcon } from "@/components/AppIcon";
 
 const sectionTitles = [
@@ -34,9 +34,20 @@ export function Topbar({
   onOpenMenu: () => void;
 }) {
   const pathname = usePathname();
-  const section =
-    sectionTitles.find((item) => pathname.startsWith(item.path)) ??
-    sectionTitles[sectionTitles.length - 1];
+  const searchParams = useSearchParams();
+  const automationSection = searchParams.get("section") || "orders";
+  const automationTitles: Record<string, string> = {
+    orders: "Pedidos e envios",
+    messages: "Mensagens",
+    routines: "Rotinas",
+  };
+  const section = pathname.startsWith("/automations/")
+    ? {
+        title: automationTitles[automationSection] || automationTitles.orders,
+        group: "Automações",
+      }
+    : sectionTitles.find((item) => pathname.startsWith(item.path)) ??
+      sectionTitles[sectionTitles.length - 1];
   const initial = (userEmail?.trim()[0] || "U").toUpperCase();
 
   return (

@@ -1,24 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 const tabs = [
-  { href: "/automations/abandoned-carts", label: "Carrinhos abandonados" },
-  { href: "/automations/post-sale", label: "Pós-venda" },
+  { slug: "abandoned-carts", label: "Carrinho abandonado" },
+  { slug: "post-sale", label: "Pós-venda" },
 ];
 
 export function AutomationNav() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const section = searchParams.get("section") || "orders";
 
   return (
-    <nav className="inline-flex rounded-xl border border-gray-200 bg-white p-1" aria-label="Seções de automação">
+    <nav
+      className="inline-flex rounded-xl border border-gray-200 bg-white p-1"
+      aria-label="Tipo de automação"
+    >
       {tabs.map((tab) => {
-        const active = pathname === tab.href;
+        const href = `/automations/${tab.slug}?section=${section}`;
+        const active = pathname === `/automations/${tab.slug}`;
         return (
           <Link
-            key={tab.href}
-            href={tab.href}
+            key={tab.slug}
+            href={href}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
               active
                 ? "bg-brand-900 text-white"

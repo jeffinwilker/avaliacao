@@ -13,7 +13,15 @@ import {
 import { AutomationNav } from "../AutomationNav";
 import { SyncOrdersButton } from "../orders/SyncOrdersButton";
 
-export default async function AbandonedCartsPage() {
+type AutomationSection = "orders" | "messages" | "routines";
+
+export default async function AbandonedCartsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ section?: string }>;
+}) {
+  const params = await searchParams;
+  const section = normalizeSection(params.section);
   const admin = createAdminClient();
   const { data: store } = await admin
     .from("stores")
@@ -108,12 +116,12 @@ export default async function AbandonedCartsPage() {
     <div className="space-y-6 p-5 md:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Carrinhos abandonados</h1>
+          <h1 className="text-2xl font-bold">{sectionTitle(section)}</h1>
           <p className="mt-1 text-sm text-gray-600">
-            Crie a sequência de recuperação e acompanhe cada carrinho em um só lugar.
+            {sectionDescription(section)}
           </p>
         </div>
-        <SyncOrdersButton />
+        {section === "orders" && <SyncOrdersButton />}
       </div>
 
       <AutomationNav />
@@ -123,9 +131,30 @@ export default async function AbandonedCartsPage() {
         initialEnabled={settings?.abandoned_cart_enabled ?? false}
         initialSteps={initialSteps}
         carts={carts}
+        mode={section === "routines" ? "routine" : section}
       />
     </div>
   );
+}
+
+function normalizeSection(value: string | undefined): AutomationSection {
+  return value === "messages" || value === "routines" ? value : "orders";
+}
+
+function sectionTitle(section: AutomationSection): string {
+  if (section === "messages") return "Mensagens";
+  if (section === "routines") return "Rotinas";
+  return "Pedidos e envios";
+}
+
+function sectionDescription(section: AutomationSection): string {
+  if (section === "messages") {
+    return "Crie e personalize as mensagens usadas para recuperar carrinhos.";
+  }
+  if (section === "routines") {
+    return "Defina quais mensagens serão enviadas e escolha os intervalos.";
+  }
+  return "Veja os carrinhos, produtos e o status de cada envio.";
 }
 
 function normalizeProducts(value: unknown): CartProductView[] {

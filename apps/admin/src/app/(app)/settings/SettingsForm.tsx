@@ -155,7 +155,7 @@ export function SettingsForm({
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <a
-            href="/automations/abandoned-carts"
+            href="/automations/abandoned-carts?section=orders"
             className="rounded-xl border border-gray-200 bg-gray-50 p-4 transition hover:border-gray-400 hover:bg-white"
           >
             <div className="font-semibold text-gray-900">Carrinhos abandonados</div>
@@ -164,7 +164,7 @@ export function SettingsForm({
             </div>
           </a>
           <a
-            href="/automations/post-sale"
+            href="/automations/post-sale?section=orders"
             className="rounded-xl border border-gray-200 bg-gray-50 p-4 transition hover:border-gray-400 hover:bg-white"
           >
             <div className="font-semibold text-gray-900">Pós-venda</div>

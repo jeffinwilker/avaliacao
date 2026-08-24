@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
@@ -9,7 +9,13 @@ import { AppIcon, type AppIconName } from "@/components/AppIcon";
 
 const groups: Array<{
   label: string;
-  items: Array<{ href: string; label: string; icon: AppIconName; exact?: boolean }>;
+  items: Array<{
+    href: string;
+    label: string;
+    icon: AppIconName;
+    exact?: boolean;
+    automationSection?: "orders" | "messages" | "routines";
+  }>;
 }> = [
   {
     label: "Painel",
@@ -28,14 +34,22 @@ const groups: Array<{
     label: "Automações",
     items: [
       {
-        href: "/automations/abandoned-carts",
-        label: "Carrinhos abandonados",
-        icon: "workflow",
+        href: "/automations/abandoned-carts?section=orders",
+        label: "Pedidos e envios",
+        icon: "receipt",
+        automationSection: "orders",
       },
       {
-        href: "/automations/post-sale",
-        label: "Pós-venda",
-        icon: "receipt",
+        href: "/automations/abandoned-carts?section=messages",
+        label: "Mensagens",
+        icon: "workflow",
+        automationSection: "messages",
+      },
+      {
+        href: "/automations/abandoned-carts?section=routines",
+        label: "Rotinas",
+        icon: "clock",
+        automationSection: "routines",
       },
     ],
   },
@@ -59,7 +73,12 @@ export function Sidebar({
   onClose?: () => void;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
+  const automationType = pathname.startsWith("/automations/post-sale")
+    ? "post-sale"
+    : "abandoned-carts";
+  const activeAutomationSection = searchParams.get("section") || "orders";
 
   async function logout() {
     const supabase = createClient();
@@ -94,13 +113,19 @@ export function Sidebar({
             </div>
             <div className="space-y-0.5">
               {group.items.map((item) => {
-                const active = item.exact
-                  ? pathname === item.href
-                  : pathname.startsWith(item.href);
+                const href = item.automationSection
+                  ? `/automations/${automationType}?section=${item.automationSection}`
+                  : item.href;
+                const active = item.automationSection
+                  ? pathname.startsWith("/automations/") &&
+                    activeAutomationSection === item.automationSection
+                  : item.exact
+                    ? pathname === item.href
+                    : pathname.startsWith(item.href);
                 return (
                   <Link
                     key={item.href}
-                    href={item.href}
+                    href={href}
                     onClick={onClose}
                     className={clsx(
                       "group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition",

@@ -124,8 +124,9 @@ export async function POST(req: NextRequest) {
   const { data: settings } = await admin
     .from("store_settings")
     .select(
-      `request_delay_days, email_enabled, whatsapp_enabled,
-       post_purchase_enabled, post_purchase_delay_hours`
+      `request_delay_days, review_request_delay_minutes,
+       email_enabled, whatsapp_enabled, post_purchase_enabled,
+       post_purchase_delay_hours, post_purchase_delay_minutes`
     )
     .eq("store_id", store.id)
     .maybeSingle();
@@ -144,7 +145,11 @@ export async function POST(req: NextRequest) {
     if (settings?.post_purchase_enabled && customerPhone) {
       const createdAt = new Date(order.created_at).getTime();
       const baseTime = Number.isFinite(createdAt) ? createdAt : Date.now();
-      const delayHours = Math.max(0, settings.post_purchase_delay_hours ?? 0);
+      const delayMinutes = Math.max(
+        0,
+        settings.post_purchase_delay_minutes ??
+          (settings.post_purchase_delay_hours ?? 0) * 60
+      );
       await queuePostPurchaseMessage(admin, {
         storeId: store.id,
         externalReference: externalOrderId,
@@ -154,7 +159,7 @@ export async function POST(req: NextRequest) {
         customerPhone,
         productsSummary: productsSummary || "seus produtos",
         link: store.domain ? normalizeStoreUrl(store.domain) : null,
-        scheduledFor: new Date(baseTime + delayHours * 3600_000).toISOString(),
+        scheduledFor: new Date(baseTime + delayMinutes * 60_000).toISOString(),
       });
     }
 
@@ -163,9 +168,13 @@ export async function POST(req: NextRequest) {
 
   // A solicitação de avaliação continua sendo uma automação de pós-venda
   // independente da confirmação enviada na criação do pedido.
-  const reviewDelay = settings?.request_delay_days ?? 7;
+  const reviewDelayMinutes = Math.max(
+    10,
+    settings?.review_request_delay_minutes ??
+      (settings?.request_delay_days ?? 7) * 1_440
+  );
   const reviewScheduledFor = new Date(
-    Date.now() + reviewDelay * 86400_000
+    Date.now() + reviewDelayMinutes * 60_000
   ).toISOString();
 
   for (const product of localProducts) {

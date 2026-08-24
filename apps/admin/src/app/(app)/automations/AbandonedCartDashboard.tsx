@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AbandonedCartMessageStep } from "@avaliacoes/shared";
+import { AutomationDelayField } from "./AutomationDelayField";
 
 export interface CartProductView {
   name: string;
@@ -66,7 +67,7 @@ export function AbandonedCartDashboard({
   initialEnabled: boolean;
   initialSteps: AbandonedCartMessageStep[];
   carts: AbandonedCartView[];
-  mode?: "all" | "routine" | "orders";
+  mode?: "all" | "routine" | "messages" | "orders";
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState(initialEnabled);
@@ -76,8 +77,9 @@ export function AbandonedCartDashboard({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [expandedCart, setExpandedCart] = useState<string | null>(null);
-  const showRoutine = mode !== "orders";
-  const showOrders = mode !== "routine";
+  const showRoutine = mode === "all" || mode === "routine";
+  const showMessages = mode === "all" || mode === "messages";
+  const showOrders = mode === "all" || mode === "orders";
 
   const filteredCarts = useMemo(() => {
     const search = query.trim().toLocaleLowerCase("pt-BR");
@@ -156,7 +158,12 @@ export function AbandonedCartDashboard({
         enabled: step.enabled !== false,
       }))
     );
-    setFeedback({ type: "ok", text: "Rotina salva e carrinhos atualizados." });
+    setFeedback({
+      type: "ok",
+      text: showMessages
+        ? "Mensagens salvas."
+        : "Rotina salva e carrinhos atualizados.",
+    });
     router.refresh();
   }
 
@@ -169,20 +176,28 @@ export function AbandonedCartDashboard({
         <SummaryCard label="Mensagens enviadas" value={counts.sent} tone="neutral" />
       </div>}
 
-      {showRoutine && <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      {(showRoutine || showMessages) && <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-semibold text-lg">Rotina de recuperação</h2>
-              <span className={`text-xs font-medium rounded-full px-2 py-1 ${enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
-                {enabled ? "Ativa" : "Pausada"}
-              </span>
+              <h2 className="font-semibold text-lg">
+                {showMessages ? "Mensagens de recuperação" : "Rotina de recuperação"}
+              </h2>
+              {showRoutine && (
+                <span className={`text-xs font-medium rounded-full px-2 py-1 ${enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
+                  {enabled ? "Ativa" : "Pausada"}
+                </span>
+              )}
             </div>
             <p className="text-sm text-gray-500 mt-1">
-              Crie até 5 tentativas. O tempo é contado a partir da criação do checkout.
+              {showMessages
+                ? "Crie até 5 textos. Os horários são definidos separadamente em Rotinas."
+                : "Escolha quando cada mensagem será enviada a partir da criação do checkout."}
             </p>
           </div>
-          <Toggle value={enabled} onChange={setEnabled} label="Ativar rotina" />
+          {showRoutine && (
+            <Toggle value={enabled} onChange={setEnabled} label="Ativar rotina" />
+          )}
         </div>
 
         <div className="p-5 space-y-4">
@@ -193,65 +208,97 @@ export function AbandonedCartDashboard({
                   <span className="h-8 w-8 rounded-full bg-brand-900 text-white flex items-center justify-center text-sm font-bold">
                     {index + 1}
                   </span>
-                  <DelayField
-                    delayMinutes={step.delayMinutes}
-                    onChange={(delayMinutes) =>
-                      updateStep(step.id, { delayMinutes })
-                    }
-                  />
+                  {showRoutine ? (
+                    <AutomationDelayField
+                      delayMinutes={step.delayMinutes}
+                      minMinutes={10}
+                      maxMinutes={43_200}
+                      presets={[
+                        { label: "10 min", value: 10 },
+                        { label: "30 min", value: 30 },
+                        { label: "1 h", value: 60 },
+                        { label: "4 h", value: 240 },
+                        { label: "1 dia", value: 1_440 },
+                      ]}
+                      onChange={(delayMinutes) =>
+                        updateStep(step.id, { delayMinutes })
+                      }
+                    />
+                  ) : (
+                    <div>
+                      <div className="font-semibold">Mensagem {index + 1}</div>
+                      <div className="text-xs text-gray-500">
+                        Horário configurado em Rotinas
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
-                  <Toggle
-                    value={step.enabled}
-                    onChange={(value) => updateStep(step.id, { enabled: value })}
-                    label={step.enabled ? "Ligada" : "Pausada"}
-                    compact
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeStep(step.id)}
-                    disabled={steps.length === 1}
-                    className="text-sm text-red-700 disabled:text-gray-300"
-                  >
-                    Excluir
-                  </button>
+                  {showRoutine && (
+                    <Toggle
+                      value={step.enabled}
+                      onChange={(value) => updateStep(step.id, { enabled: value })}
+                      label={step.enabled ? "Ligada" : "Pausada"}
+                      compact
+                    />
+                  )}
+                  {showMessages && (
+                    <button
+                      type="button"
+                      onClick={() => removeStep(step.id)}
+                      disabled={steps.length === 1}
+                      className="text-sm text-red-700 disabled:text-gray-300"
+                    >
+                      Excluir
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <textarea
-                value={step.messageTemplate}
-                onChange={(event) => updateStep(step.id, { messageTemplate: event.target.value })}
-                maxLength={4000}
-                className="w-full min-h-[150px] border border-gray-300 bg-white rounded-xl px-4 py-3 text-sm leading-6 resize-y"
-                aria-label={`Texto da mensagem ${index + 1}`}
-              />
-              <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
-                <div className="flex gap-2 flex-wrap">
-                  {["{{nome}}", "{{produtos}}", "{{link}}", "{{loja}}"].map((variable) => (
-                    <button
-                      type="button"
-                      key={variable}
-                      onClick={() => updateStep(step.id, { messageTemplate: `${step.messageTemplate}${step.messageTemplate.endsWith(" ") ? "" : " "}${variable}` })}
-                      className="text-xs font-mono rounded-md border border-gray-300 bg-white px-2 py-1 hover:bg-gray-100"
-                    >
-                      {variable}
-                    </button>
-                  ))}
-                </div>
-                <span className="text-xs text-gray-400">{step.messageTemplate.length}/4000</span>
-              </div>
+              {showMessages && (
+                <>
+                  <textarea
+                    value={step.messageTemplate}
+                    onChange={(event) => updateStep(step.id, { messageTemplate: event.target.value })}
+                    maxLength={4000}
+                    className="w-full min-h-[150px] border border-gray-300 bg-white rounded-xl px-4 py-3 text-sm leading-6 resize-y"
+                    aria-label={`Texto da mensagem ${index + 1}`}
+                  />
+                  <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
+                    <div className="flex gap-2 flex-wrap">
+                      {["{{nome}}", "{{produtos}}", "{{link}}", "{{loja}}"].map((variable) => (
+                        <button
+                          type="button"
+                          key={variable}
+                          onClick={() => updateStep(step.id, { messageTemplate: `${step.messageTemplate}${step.messageTemplate.endsWith(" ") ? "" : " "}${variable}` })}
+                          className="text-xs font-mono rounded-md border border-gray-300 bg-white px-2 py-1 hover:bg-gray-100"
+                        >
+                          {variable}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-xs text-gray-400">{step.messageTemplate.length}/4000</span>
+                  </div>
+                </>
+              )}
             </div>
           ))}
 
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <button
-              type="button"
-              onClick={addStep}
-              disabled={steps.length >= 5}
-              className="border border-gray-300 bg-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40"
-            >
-              + Adicionar mensagem
-            </button>
+            {showMessages ? (
+              <button
+                type="button"
+                onClick={addStep}
+                disabled={steps.length >= 5}
+                className="border border-gray-300 bg-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40"
+              >
+                + Adicionar mensagem
+              </button>
+            ) : (
+              <span className="text-xs text-gray-500">
+                Os textos são editados na página Mensagens.
+              </span>
+            )}
             <div className="flex items-center gap-3">
               {feedback && (
                 <span className={`text-sm ${feedback.type === "ok" ? "text-green-700" : "text-red-700"}`}>
@@ -264,7 +311,11 @@ export function AbandonedCartDashboard({
                 disabled={saving}
                 className="bg-brand-900 text-white rounded-lg px-5 py-2.5 text-sm font-medium disabled:opacity-50"
               >
-                {saving ? "Salvando..." : "Salvar rotina"}
+                {saving
+                  ? "Salvando..."
+                  : showMessages
+                    ? "Salvar mensagens"
+                    : "Salvar rotina"}
               </button>
             </div>
           </div>
@@ -475,83 +526,6 @@ function SummaryCard({ label, value, tone }: { label: string; value: number; ton
       <div className="text-3xl font-bold mt-1">{value}</div>
     </div>
   );
-}
-
-type DelayUnit = "minutes" | "hours" | "days";
-
-function DelayField({
-  delayMinutes,
-  onChange,
-}: {
-  delayMinutes: number;
-  onChange: (delayMinutes: number) => void;
-}) {
-  const [unit, setUnit] = useState<DelayUnit>(() => preferredDelayUnit(delayMinutes));
-  const factor = unit === "days" ? 1_440 : unit === "hours" ? 60 : 1;
-  const amount = Math.round((delayMinutes / factor) * 100) / 100;
-
-  const presets = [
-    { label: "10 min", value: 10 },
-    { label: "30 min", value: 30 },
-    { label: "1 h", value: 60 },
-    { label: "4 h", value: 240 },
-    { label: "1 dia", value: 1_440 },
-  ];
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
-        Enviar após
-        <input
-          type="number"
-          min={unit === "minutes" ? 10 : unit === "hours" ? 0.17 : 0.01}
-          max={unit === "minutes" ? 43_200 : unit === "hours" ? 720 : 30}
-          step={unit === "minutes" ? 1 : unit === "hours" ? 0.5 : 0.25}
-          value={amount}
-          onChange={(event) => {
-            const next = Math.round(Number(event.target.value) * factor);
-            onChange(next);
-          }}
-          className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2"
-        />
-        <select
-          value={unit}
-          onChange={(event) => setUnit(event.target.value as DelayUnit)}
-          className="rounded-lg border border-gray-300 bg-white px-3 py-2"
-          aria-label="Unidade do tempo de espera"
-        >
-          <option value="minutes">minutos</option>
-          <option value="hours">horas</option>
-          <option value="days">dias</option>
-        </select>
-      </label>
-      <div className="flex flex-wrap gap-1" aria-label="Atalhos de tempo">
-        {presets.map((preset) => (
-          <button
-            type="button"
-            key={preset.value}
-            onClick={() => {
-              setUnit(preferredDelayUnit(preset.value));
-              onChange(preset.value);
-            }}
-            className={`rounded-md border px-2 py-1 text-xs transition ${
-              delayMinutes === preset.value
-                ? "border-brand-900 bg-brand-900 text-white"
-                : "border-gray-300 bg-white text-gray-600 hover:bg-gray-100"
-            }`}
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function preferredDelayUnit(delayMinutes: number): DelayUnit {
-  if (delayMinutes >= 1_440 && delayMinutes % 1_440 === 0) return "days";
-  if (delayMinutes >= 60 && delayMinutes % 60 === 0) return "hours";
-  return "minutes";
 }
 
 function Toggle({ value, onChange, label, compact = false }: { value: boolean; onChange: (value: boolean) => void; label: string; compact?: boolean }) {

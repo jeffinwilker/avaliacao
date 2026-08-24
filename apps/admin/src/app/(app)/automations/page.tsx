@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function AutomationsPage() {
-  redirect("/automations/abandoned-carts");
+  redirect("/automations/abandoned-carts?section=orders");
 }
