@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { AppIcon } from "@/components/AppIcon";
 
 const sectionTitles = [
+  { path: "/account/password", title: "Definir nova senha", group: "Conta" },
   { path: "/automations/orders", title: "Pedidos e envios", group: "Automações" },
   { path: "/automations", title: "Rotinas", group: "Automações" },
   { path: "/reviews", title: "Avaliações", group: "Gestão" },
@@ -62,4 +63,3 @@ export function Topbar({
     </header>
   );
 }
-
