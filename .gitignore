@@ -44,6 +44,6 @@ supabase/.branches/
 # claude code (local per-machine)
 .claude/settings.local.json
 
-# local project handoff/instructions
-AGENTS.md
+# instruções locais de outras ferramentas
+# AGENTS.md é versionado: o Codex o usa para retomar o projeto em outro PC.
 CLAUDE.md
