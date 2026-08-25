@@ -635,9 +635,21 @@ function FlowClockIcon() {
 
 function FlowConditionIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-      <path d="M8.5 3.5h7l5 8.5-5 8.5h-7L3.5 12l5-8.5Z" />
-      <path d="m9 12 2 2 4-4" />
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="4.5" r="1.75" />
+      <circle cx="6.5" cy="19.5" r="1.75" />
+      <circle cx="17.5" cy="19.5" r="1.75" />
+      <path d="M12 6.25V9c0 2-1.25 3-3 4-1.5.85-2.5 2-2.5 4.75" />
+      <path d="M12 9c0 2 1.25 3 3 4 1.5.85 2.5 2 2.5 4.75" />
     </svg>
   );
 }
