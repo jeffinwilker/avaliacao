@@ -52,8 +52,10 @@ export interface NuvemshopOrder {
     variant_id?: number;
     quantity: number;
     name?: string;
+    image?: { src?: string | null } | null;
   }>;
   created_at: string;
+  updated_at?: string | null;
   paid_at?: string | null;
   shipped_at?: string;
   fulfillments?: NuvemshopFulfillmentOrder[];
@@ -407,6 +409,62 @@ export async function fetchOrder(
     if (!/API (401|403|422)/.test((error as Error).message)) throw error;
     return request<NuvemshopOrder>("GET", storeId, token, `/orders/${orderId}`);
   }
+}
+
+/**
+ * Busca pedidos anteriores à instalação dos webhooks para preencher a área de
+ * pós-venda. A janela e o limite evitam a restrição de 10 mil resultados da API.
+ */
+export async function fetchRecentOrders(
+  storeId: string,
+  token: string,
+  options: { days?: number; maxOrders?: number } = {}
+): Promise<NuvemshopOrder[]> {
+  const days = Math.max(1, Math.min(730, options.days ?? 365));
+  const maxOrders = Math.max(1, Math.min(2_000, options.maxOrders ?? 1_000));
+  const perPage = Math.min(200, maxOrders);
+  const createdAtMin = new Date(
+    Date.now() - days * 24 * 60 * 60 * 1_000
+  ).toISOString();
+  const all: NuvemshopOrder[] = [];
+  let page = 1;
+  let includeFulfillments = true;
+
+  while (all.length < maxOrders) {
+    const params: Record<string, string | number> = {
+      page,
+      per_page: Math.min(perPage, maxOrders - all.length),
+      status: "any",
+      created_at_min: createdAtMin,
+    };
+    if (includeFulfillments) params.aggregates = "fulfillment_orders";
+
+    let batch: NuvemshopOrder[];
+    try {
+      batch = await request<NuvemshopOrder[]>(
+        "GET",
+        storeId,
+        token,
+        "/orders",
+        { params }
+      );
+    } catch (error) {
+      if (
+        includeFulfillments &&
+        /API (401|403|422)/.test((error as Error).message)
+      ) {
+        includeFulfillments = false;
+        continue;
+      }
+      throw error;
+    }
+
+    all.push(...batch);
+    if (batch.length < Number(params.per_page)) break;
+    page++;
+  }
+
+  return all;
 }
 
 export async function fetchFulfillmentOrder(

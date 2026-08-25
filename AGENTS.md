@@ -25,6 +25,11 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   `{{link_aniversario}}` e `{{link_rastreio}}`; `{{link}}` continua sendo
   substituída somente para compatibilidade com mensagens antigas.
 - O typecheck e o build completo passaram após essas alterações.
+- A área Pedidos e envios agora possui a aba **Pedidos**. Ela sincroniza até mil
+  compras dos últimos 12 meses, começa filtrada em entregues e permite enviar ou
+  reenviar manualmente pelo WhatsApp o convite de avaliação de cada produto. O
+  envio reaproveita o template configurado e registra o resultado em
+  `review_requests`; avaliações já respondidas não podem ser reenviadas.
 - Não foi criada migration nova nesta entrega. Ainda é necessário confirmar no
   ambiente de produção se as migrations `0014_store_members.sql`,
   `0016_customers.sql` e `0017_birthday_collection.sql` já foram executadas.
@@ -207,6 +212,9 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   Na lista, cada atividade abre uma prévia por clique e pode ser enviada
   manualmente, inclusive em carrinhos antigos ou como nova tentativa após falha;
   o resultado continua registrado na linha do tempo do carrinho.
+  A aba **Pedidos** importa compras anteriores à instalação dos webhooks, mostra
+  somente entregues por padrão e oferece o mesmo envio manual por produto para o
+  convite de avaliação.
   O webhook `order/created` enfileira a confirmação do pedido; a confirmação de
   entrega cria os pedidos de avaliação; os demais eventos enfileiram as mensagens configuradas
   para cada estado e `order/cancelled` cancela mensagens pendentes.
@@ -394,6 +402,7 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/run` (POST — dispara o cron manualmente),
 `/api/automations/abandoned-cart-routine`, `/api/automations/post-sale-routine`,
 `/api/automations/abandoned-cart-manual-send`,
+`/api/automations/review-request-manual-send`, `/api/automations/sync-orders`,
 `/api/reels` (POST), `/api/reels/[id]` (PUT/DELETE), `/api/reels/upload-video`,
 `/api/customers` (POST), `/api/customers/[id]` (PUT/DELETE),
 `/api/customers/import` (POST em massa),

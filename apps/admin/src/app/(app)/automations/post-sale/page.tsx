@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { listAutomationMedia } from "@/lib/automation-media";
 import { parsePostSaleSequence } from "@/lib/automations";
 import { AutomationNav } from "../AutomationNav";
-import { RunAutomationsButton } from "../RunAutomationsButton";
+import { SyncDeliveredOrdersButton } from "../orders/SyncDeliveredOrdersButton";
 import {
   PostSaleDashboard,
   type PostSaleMessageView,
@@ -29,7 +29,7 @@ export default async function PostSalePage({
   const admin = createAdminClient();
   const { data: store } = await admin
     .from("stores")
-    .select("id")
+    .select("id, name")
     .limit(1)
     .maybeSingle();
 
@@ -59,7 +59,7 @@ export default async function PostSalePage({
           `id, external_order_id, customer_name, customer_email, customer_phone,
            status, payment_status, shipping_status, fulfillment_status,
            tracking_status, shipping_tracking_number, shipping_tracking_url,
-           tracking_updated_at, ordered_at,
+           tracking_updated_at, ordered_at, delivered_at,
            order_items (quantity, product:products (id, name, image_url))`
         )
         .eq("store_id", store.id)
@@ -123,13 +123,14 @@ export default async function PostSalePage({
             {sectionDescription(section)}
           </p>
         </div>
-        {section === "orders" && <RunAutomationsButton />}
+        {section === "orders" && <SyncDeliveredOrdersButton />}
       </div>
 
       {!params.editor && <AutomationNav />}
 
       <PostSaleDashboard
         storeId={store.id}
+        storeName={store.name}
         initialReviewEnabled={settings?.whatsapp_enabled ?? false}
         initialReviewDelayMinutes={
           settings?.review_request_delay_minutes ??
@@ -263,6 +264,7 @@ function normalizeOrders(
     const externalOrderId = String(row.external_order_id || "");
     const items = Array.isArray(row.order_items) ? row.order_items : [];
     const productsById = new Map<string, { name: string; imageUrl: string | null }>();
+    const products: PostSaleOrderView["products"] = [];
     const productLabels: string[] = [];
     const productImages: string[] = [];
 
@@ -276,6 +278,7 @@ function normalizeOrders(
         typeof product.image_url === "string" ? product.image_url : null;
       const quantity = Math.max(1, Number(item.quantity) || 1);
       productsById.set(productId, { name, imageUrl });
+      products.push({ id: productId, name, imageUrl, quantity });
       productLabels.push(quantity > 1 ? `${quantity}× ${name}` : name);
       if (imageUrl) productImages.push(imageUrl);
     }
@@ -286,7 +289,9 @@ function normalizeOrders(
       const product = productsById.get(String(request.product_id || ""));
       return {
         id: String(request.id),
+        productId: String(request.product_id || ""),
         productName: product?.name ?? "Produto",
+        productImageUrl: product?.imageUrl ?? null,
         stepId: "review_request",
         trackingCode: null,
         trackingStatus: null,
@@ -312,8 +317,11 @@ function normalizeOrders(
           typeof row.customer_phone === "string" ? row.customer_phone : null,
         productsSummary: productLabels.join(", "),
         productImages,
+        products,
         orderStatus: String(row.status || "unknown"),
         orderedAt: String(row.ordered_at || ""),
+        deliveredAt:
+          typeof row.delivered_at === "string" ? row.delivered_at : null,
         paymentStatus:
           typeof row.payment_status === "string" ? row.payment_status : null,
         shippingStatus:

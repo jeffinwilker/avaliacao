@@ -3,15 +3,14 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
-const tabs = [
-  { slug: "abandoned-carts", label: "Carrinho abandonado" },
-  { slug: "post-sale", label: "Pós-venda" },
-];
-
 export function AutomationNav() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const section = searchParams.get("section") || "orders";
+  const tabs = [
+    { slug: "abandoned-carts", label: "Carrinho abandonado" },
+    { slug: "post-sale", label: section === "orders" ? "Pedidos" : "Pós-venda" },
+  ];
 
   return (
     <nav

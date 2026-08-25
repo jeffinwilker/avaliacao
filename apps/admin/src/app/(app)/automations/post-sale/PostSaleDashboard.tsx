@@ -33,7 +33,16 @@ export interface PostSaleMessageView {
 
 export interface ReviewRequestView extends PostSaleMessageView {
   id: string;
+  productId: string;
   productName: string;
+  productImageUrl: string | null;
+}
+
+export interface PostSaleProductView {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  quantity: number;
 }
 
 export interface PostSaleOrderView {
@@ -44,6 +53,7 @@ export interface PostSaleOrderView {
   customerPhone: string | null;
   productsSummary: string;
   productImages: string[];
+  products: PostSaleProductView[];
   orderStatus: string;
   paymentStatus: string | null;
   shippingStatus: string | null;
@@ -52,6 +62,7 @@ export interface PostSaleOrderView {
   trackingNumber: string | null;
   trackingUrl: string | null;
   orderedAt: string;
+  deliveredAt: string | null;
   postSaleMessages: PostSaleMessageView[];
   deliveryEvents: Array<{
     eventType: string;
@@ -64,6 +75,7 @@ export interface PostSaleOrderView {
 
 interface PostSaleDashboardProps {
   storeId: string;
+  storeName: string;
   initialReviewEnabled: boolean;
   initialReviewDelayMinutes: number;
   initialReviewTemplate: string;
@@ -153,6 +165,7 @@ const POST_SALE_STEP_META: Record<
 
 export function PostSaleDashboard({
   storeId,
+  storeName,
   initialReviewEnabled,
   initialReviewDelayMinutes,
   initialReviewTemplate,
@@ -228,6 +241,19 @@ export function PostSaleDashboard({
       : initialBirthdayTemplate
   );
   const [query, setQuery] = useState("");
+  const [deliveryFilter, setDeliveryFilter] = useState<"delivered" | "all">(
+    "delivered"
+  );
+  const [manualSelection, setManualSelection] = useState<{
+    order: PostSaleOrderView;
+    product: PostSaleProductView;
+    request: ReviewRequestView | null;
+  } | null>(null);
+  const [manualSending, setManualSending] = useState(false);
+  const [manualFeedback, setManualFeedback] = useState<{
+    type: "ok" | "error";
+    text: string;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{
     type: "ok" | "error";
@@ -239,16 +265,18 @@ export function PostSaleDashboard({
 
   const filteredOrders = useMemo(() => {
     const search = query.trim().toLocaleLowerCase("pt-BR");
-    if (!search) return orders;
-    return orders.filter(
-      (order) =>
+    return orders.filter((order) => {
+      if (deliveryFilter === "delivered" && !isDeliveredOrder(order)) return false;
+      if (!search) return true;
+      return (
         order.externalOrderId.includes(search) ||
         order.customerName.toLocaleLowerCase("pt-BR").includes(search) ||
         order.customerEmail?.toLocaleLowerCase("pt-BR").includes(search) ||
         order.customerPhone?.includes(search) ||
         order.productsSummary.toLocaleLowerCase("pt-BR").includes(search)
-    );
-  }, [orders, query]);
+      );
+    });
+  }, [orders, query, deliveryFilter]);
 
   const counts = useMemo(() => {
     const requests = orders.flatMap((order) => order.reviewRequests);
@@ -264,6 +292,39 @@ export function PostSaleDashboard({
       completed: requests.filter((request) => request.status === "completed").length,
     };
   }, [orders]);
+
+  async function sendManualReviewRequest() {
+    if (!manualSelection) return;
+    setManualSending(true);
+    setManualFeedback(null);
+    const response = await fetch(
+      "/api/automations/review-request-manual-send",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          storeId,
+          orderId: manualSelection.order.id,
+          productId: manualSelection.product.id,
+        }),
+      }
+    );
+    const result = await response.json().catch(() => ({}));
+    setManualSending(false);
+    if (!response.ok) {
+      setManualFeedback({
+        type: "error",
+        text: result.error || "Não foi possível enviar o pedido de avaliação",
+      });
+      return;
+    }
+
+    setManualFeedback({
+      type: "ok",
+      text: "Pedido de avaliação enviado pelo WhatsApp.",
+    });
+    router.refresh();
+  }
 
   function updatePostSaleStep(
     id: PostSaleTrigger,
@@ -642,18 +703,31 @@ export function PostSaleDashboard({
       <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 px-5 py-4">
           <div>
-            <h2 className="text-lg font-semibold">Pedidos e envios</h2>
+            <h2 className="text-lg font-semibold">Pedidos e avaliações</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Acompanhe a confirmação do pedido e o convite de avaliação de cada produto.
+              Peça avaliações dos produtos entregues e acompanhe cada envio.
             </p>
           </div>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar pedido, cliente ou produto"
-            className="w-80 max-w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-          />
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar pedido, cliente ou produto"
+              className="w-80 max-w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+            <select
+              value={deliveryFilter}
+              onChange={(event) =>
+                setDeliveryFilter(event.target.value === "all" ? "all" : "delivered")
+              }
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+              aria-label="Filtrar pedidos pela entrega"
+            >
+              <option value="delivered">Somente entregues</option>
+              <option value="all">Todos os pedidos</option>
+            </select>
+          </div>
         </div>
 
         {filteredOrders.length ? (
@@ -666,7 +740,7 @@ export function PostSaleDashboard({
                   <th className="px-5 py-3 text-left">Produtos</th>
                   <th className="px-5 py-3 text-left">Entrega e rastreio</th>
                   <th className="px-5 py-3 text-left">Mensagens de pós-venda</th>
-                  <th className="px-5 py-3 text-left">Pedido de avaliação</th>
+                  <th className="px-5 py-3 text-left">Avaliação por produto</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -730,20 +804,63 @@ export function PostSaleDashboard({
                         <span className="text-xs text-gray-400">Nenhuma mensagem</span>
                       )}
                     </td>
-                    <td className="min-w-[260px] px-5 py-4">
-                      {order.reviewRequests.length ? (
-                        <div className="space-y-2">
-                          {order.reviewRequests.map((request) => (
-                            <div key={request.id}>
-                              <div className="line-clamp-1 text-xs font-medium text-gray-700">
-                                {request.productName}
+                    <td className="min-w-[310px] px-5 py-4">
+                      {order.products.length ? (
+                        <div className="space-y-3">
+                          {order.products.map((product) => {
+                            const request =
+                              order.reviewRequests.find(
+                                (item) => item.productId === product.id
+                              ) || null;
+                            return (
+                              <div
+                                key={product.id}
+                                className="rounded-xl border border-gray-200 p-3"
+                              >
+                                <div className="flex items-start gap-3">
+                                  {product.imageUrl && (
+                                    <img
+                                      src={product.imageUrl}
+                                      alt=""
+                                      className="h-10 w-10 rounded-lg object-cover"
+                                    />
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="line-clamp-2 text-xs font-medium text-gray-800">
+                                      {product.quantity > 1
+                                        ? `${product.quantity}× ${product.name}`
+                                        : product.name}
+                                    </div>
+                                    <MessageStatus
+                                      message={request}
+                                      empty="Ainda não enviado"
+                                      compact
+                                    />
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    !isDeliveredOrder(order) ||
+                                    !order.customerPhone ||
+                                    request?.status === "completed"
+                                  }
+                                  onClick={() => {
+                                    setManualFeedback(null);
+                                    setManualSelection({ order, product, request });
+                                  }}
+                                  className="mt-3 w-full rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:border-zinc-900 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  {manualActionLabel(order, request)}
+                                </button>
                               </div>
-                              <MessageStatus message={request} empty="Sem envio" compact />
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-400">Nenhum convite agendado</span>
+                        <span className="text-xs text-gray-400">
+                          Produtos não sincronizados
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -754,12 +871,209 @@ export function PostSaleDashboard({
         ) : (
           <div className="px-5 py-14 text-center text-gray-500">
             {orders.length
-              ? "Nenhum pedido corresponde à busca."
-              : "Nenhum pedido entrou na rotina de pós-venda ainda."}
+              ? deliveryFilter === "delivered"
+                ? "Nenhum pedido entregue corresponde à busca. Atualize os pedidos para importar as entregas anteriores."
+                : "Nenhum pedido corresponde à busca."
+              : "Nenhum pedido foi sincronizado ainda. Clique em Atualizar pedidos."}
           </div>
         )}
       </section></>}
+
+      {manualSelection && (
+        <ManualReviewRequestModal
+          selection={manualSelection}
+          storeName={storeName}
+          template={reviewTemplate}
+          attachmentType={reviewAttachmentType}
+          attachmentUrl={reviewAttachmentUrl}
+          sending={manualSending}
+          feedback={manualFeedback}
+          onSend={sendManualReviewRequest}
+          onClose={() => {
+            if (manualSending) return;
+            setManualSelection(null);
+            setManualFeedback(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function ManualReviewRequestModal({
+  selection,
+  storeName,
+  template,
+  attachmentType,
+  attachmentUrl,
+  sending,
+  feedback,
+  onSend,
+  onClose,
+}: {
+  selection: {
+    order: PostSaleOrderView;
+    product: PostSaleProductView;
+    request: ReviewRequestView | null;
+  };
+  storeName: string;
+  template: string;
+  attachmentType: AutomationAttachmentType;
+  attachmentUrl: string | null;
+  sending: boolean;
+  feedback: { type: "ok" | "error"; text: string } | null;
+  onSend: () => void;
+  onClose: () => void;
+}) {
+  const { order, product, request } = selection;
+  const previewImage =
+    attachmentType === "product_image"
+      ? product.imageUrl
+      : attachmentType === "library"
+        ? attachmentUrl
+        : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Enviar pedido de avaliação"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <div className="max-h-[calc(100vh-32px)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-zinc-200 px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-950">
+              Pedir avaliação pelo WhatsApp
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              {order.customerName} · pedido #{order.externalOrderId}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="grid h-9 w-9 place-items-center rounded-lg text-xl text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-5 p-5">
+          <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm leading-5 text-green-900">
+            O pedido está entregue. O cliente receberá agora um link exclusivo para
+            avaliar este produto diretamente pelo celular.
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-zinc-200 p-3">
+            {product.imageUrl && (
+              <img
+                src={product.imageUrl}
+                alt=""
+                className="h-14 w-14 rounded-lg object-cover"
+              />
+            )}
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Produto
+              </div>
+              <div className="mt-1 font-medium text-zinc-900">{product.name}</div>
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Prévia da mensagem
+              </div>
+              {request && (
+                <span className={statusClass(request.status)}>
+                  {reviewStatusLabel(request.status)}
+                </span>
+              )}
+            </div>
+            <div className="rounded-xl bg-[#efeae2] p-4">
+              <div className="overflow-hidden rounded-xl rounded-tr-sm bg-[#d9fdd3] shadow-sm">
+                {previewImage && (
+                  <img
+                    src={previewImage}
+                    alt="Anexo da mensagem"
+                    className="max-h-64 w-full object-cover"
+                  />
+                )}
+                <div className="whitespace-pre-wrap break-words px-4 py-3 text-sm leading-6 text-zinc-800">
+                  {renderReviewMessage(template, order, product, storeName)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {feedback && (
+            <div
+              className={`rounded-xl border px-4 py-3 text-sm ${
+                feedback.type === "error"
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-green-200 bg-green-50 text-green-800"
+              }`}
+            >
+              {feedback.text}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-zinc-200 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-40"
+          >
+            Fechar
+          </button>
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={sending || feedback?.type === "ok"}
+            className="rounded-lg bg-brand-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {sending
+              ? "Enviando..."
+              : feedback?.type === "ok"
+                ? "Enviado"
+                : request?.status === "sent"
+                  ? "Reenviar agora"
+                  : "Enviar agora"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function renderReviewMessage(
+  template: string,
+  order: PostSaleOrderView,
+  product: PostSaleProductView,
+  storeName: string
+): string {
+  const firstName = order.customerName.trim().split(/\s+/)[0] || "cliente";
+  const previewOrigin =
+    typeof window === "undefined" ? "https://app.mesafy.shop" : window.location.origin;
+  const variables: Record<string, string> = {
+    "{{nome}}": firstName,
+    "{{produto}}": product.name,
+    "{{loja}}": storeName,
+    "{{link}}": `${previewOrigin}/avaliar/link-seguro`,
+    "{{link_avaliacao}}": `${previewOrigin}/avaliar/link-seguro`,
+  };
+  return Object.entries(variables).reduce(
+    (message, [variable, value]) => message.replaceAll(variable, value),
+    template
   );
 }
 
@@ -999,6 +1313,41 @@ function MessageStatus({
       )}
     </div>
   );
+}
+
+function isDeliveredOrder(order: PostSaleOrderView): boolean {
+  return (
+    Boolean(order.deliveredAt) ||
+    [
+      order.orderStatus,
+      order.shippingStatus,
+      order.fulfillmentStatus,
+      order.trackingStatus,
+    ].some((status) => status?.toLowerCase() === "delivered")
+  );
+}
+
+function manualActionLabel(
+  order: PostSaleOrderView,
+  request: ReviewRequestView | null
+): string {
+  if (!isDeliveredOrder(order)) return "Disponível após a entrega";
+  if (!order.customerPhone) return "Cliente sem WhatsApp";
+  if (request?.status === "completed") return "Avaliação recebida";
+  if (request?.status === "sent") return "Reenviar pedido de avaliação";
+  if (request?.status === "failed") return "Tentar enviar novamente";
+  return "Pedir avaliação agora";
+}
+
+function reviewStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    scheduled: "Agendada",
+    sent: "Enviada",
+    completed: "Avaliação recebida",
+    failed: "Falhou",
+    cancelled: "Cancelada",
+  };
+  return labels[status] || status;
 }
 
 function DeliveryStatus({ order }: { order: PostSaleOrderView }) {
