@@ -1430,7 +1430,7 @@ function renderCartMessage(
   deliveredCouponCode?: string | null
 ): string {
   const firstName = cart.customerName.trim().split(/\s+/)[0] || "cliente";
-  const couponCode = deliveredCouponCode || (step.couponEnabled ? "GERADO NO ENVIO" : "");
+  const couponCode = deliveredCouponCode || (step.couponEnabled ? "CAR" : "");
   const template =
     couponCode && !step.messageTemplate.includes("{{cupom}}")
       ? `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* no seu carrinho.`

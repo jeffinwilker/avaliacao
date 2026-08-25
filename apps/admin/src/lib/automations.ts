@@ -1314,7 +1314,8 @@ function resolveCartAttachmentUrl(
 }
 
 function automaticCouponCode(jobId: string): string {
-  return `MESA${jobId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}`.toUpperCase();
+  const uniqueSuffix = jobId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
+  return `CAR${uniqueSuffix}`.toUpperCase();
 }
 
 function couponDiscountLabel(step: StoredAbandonedCartStep): string {

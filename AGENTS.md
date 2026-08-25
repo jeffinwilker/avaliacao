@@ -188,7 +188,8 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   Rotinas têm editor visual linear e as mensagens aceitam nenhum anexo, imagem
   dinâmica do produto ou imagem fixa da biblioteca `automation-media`.
   Etapas de carrinho podem criar um cupom exclusivo de uso único pela Nuvemshop,
-  aplicá-lo ao checkout e inserir o código via `{{cupom}}`. Requer os escopos
+  aplicá-lo ao checkout e inserir o código via `{{cupom}}`. Os novos códigos
+  usam o prefixo curto `CAR` seguido de um identificador exclusivo. Requer os escopos
   `read_coupons` e `write_coupons`, além de `read_orders`/`write_orders`,
   `read_customers` para importar clientes e `read_fulfillment_orders` para
   rastreio detalhado.
