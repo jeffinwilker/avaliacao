@@ -11,22 +11,26 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 > (até peso/dimensões) e as **automações de WhatsApp** (carrinho abandonado +
 > pós-venda). Fase 5 de estoque de kit via webhook ainda pendente.
 
-## 0. Estado de continuidade (24/08/2026)
+## 0. Estado de continuidade (25/08/2026)
 
-- Branch de trabalho: `main`. Último commit funcional: `7040cb3`
-  (`feat: add team user management`).
-- O typecheck e o build completo passaram antes desse commit.
-- A gestão de equipe foi implementada em Configurações, mas ainda não houve
-  confirmação de que a migration `0014_store_members.sql` foi executada nem de
-  que o commit `7040cb3` foi implantado no VPS.
+- Branch de trabalho: `main`. A base local foi sincronizada com o Git até
+  `61b5acd` antes da entrega atual.
+- A entrega atual moveu a coleta de aniversário para as Rotinas de pós-venda,
+  transformou o cadastro/edição de clientes em modal e adicionou importação em
+  massa por CSV/XLS/XLSX, com modelo, relação manual de colunas, prévia e
+  atualização de duplicados por e-mail ou telefone.
+- O typecheck e o build completo passaram após essas alterações.
+- Não foi criada migration nova nesta entrega. Ainda é necessário confirmar no
+  ambiente de produção se as migrations `0014_store_members.sql`,
+  `0016_customers.sql` e `0017_birthday_collection.sql` já foram executadas.
 - Logo antes disso, o commit `78516d2` redesenhou as atividades de carrinhos e
   adicionou envio manual imediato, inclusive para carrinhos antigos e retentativa
   de falhas. Esse envio registra o resultado na linha do tempo e revalida se o
   carrinho ainda está aberto.
 - Ao retomar: rode `git status`, `git log -5 --oneline` e leia esta seção. Não
   refaça funcionalidades já descritas como concluídas.
-- Próximo passo operacional provável: aplicar a migration 0014 no SQL Editor do
-  Supabase e atualizar o VPS com `git pull`, `npm run build` e
+- Próximo passo operacional provável: confirmar/aplicar as migrations pendentes
+  no SQL Editor do Supabase e atualizar o VPS com `git pull`, `npm run build` e
   `pm2 restart avaliacoes-admin`.
 
 ### Forma de trabalhar neste projeto
@@ -126,12 +130,14 @@ cd apps/admin && npx tsc --noEmit
   Cloudflare R2 quando `R2_*` estiver configurado, com fallback para o bucket
   Supabase `product-reels` em teste.
 - **Clientes** (`/customers`): base local de clientes para relacionamento. Importa
-  da Nuvemshop via `GET /customers`, cadastra/edita manualmente e também alimenta
-  a base por `customer/created|updated|deleted` e pedidos recebidos por webhook. Guarda aniversário
-  (`birth_date`), telefone, e-mail, aceite de marketing, total gasto e origem
-  (`manual`/`nuvemshop`/`order`). A própria tela permite configurar uma coleta
-  pós-compra por WhatsApp: mensagem editável com `{{link}}`, atraso em horas e
-  página pública `/cliente/aniversario/[token]` para o cliente preencher a data.
+  da Nuvemshop via `GET /customers`, cadastra/edita em modal e também alimenta a
+  base por `customer/created|updated|deleted` e pedidos recebidos por webhook. A
+  importação em massa aceita CSV/XLS/XLSX, oferece modelo, relação manual de
+  colunas, prévia dos erros e atualiza duplicados por e-mail ou telefone. Guarda
+  aniversário (`birth_date`), telefone, e-mail, aceite de marketing, total gasto
+  e origem (`manual`/`nuvemshop`/`order`). A coleta pós-compra por WhatsApp fica
+  em **Automações → Pós-venda → Rotinas**, com mensagem editável, atraso flexível
+  e `{{link}}` para a página pública `/cliente/aniversario/[token]`.
   A automação de cupom no dia do aniversário ainda fica como próxima fase.
 - **Painel admin**: dashboard, lista com filtros (pendente/aprovada/reprovada),
   detalhe com aprovar/reprovar/responder, configurações (templates, auto-publicar,
@@ -377,6 +383,8 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/abandoned-cart-manual-send`,
 `/api/reels` (POST), `/api/reels/[id]` (PUT/DELETE), `/api/reels/upload-video`,
 `/api/customers` (POST), `/api/customers/[id]` (PUT/DELETE),
+`/api/customers/import` (POST em massa),
+`/api/customers/import/template` (modelo XLSX),
 `/api/customers/birthday-settings` (PUT),
 `/api/team-users` (POST criar / DELETE remover membro),
 `/api/nuvemshop/connect-manual|callback|disconnect|sync-products`,

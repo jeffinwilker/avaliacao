@@ -62,6 +62,9 @@ interface PostSaleDashboardProps {
   initialReviewAttachmentUrl: string | null;
   initialPostSaleSequence: PostSaleMessageStep[];
   initialMediaAssets: AutomationMediaAsset[];
+  initialBirthdayEnabled: boolean;
+  initialBirthdayDelayMinutes: number;
+  initialBirthdayTemplate: string;
   orders: PostSaleOrderView[];
   mode?: "all" | "routine" | "messages" | "orders";
 }
@@ -146,6 +149,9 @@ export function PostSaleDashboard({
   initialReviewAttachmentUrl,
   initialPostSaleSequence,
   initialMediaAssets,
+  initialBirthdayEnabled,
+  initialBirthdayDelayMinutes,
+  initialBirthdayTemplate,
   orders,
   mode = "orders",
 }: PostSaleDashboardProps) {
@@ -163,6 +169,13 @@ export function PostSaleDashboard({
   );
   const [postSaleSteps, setPostSaleSteps] = useState(initialPostSaleSequence);
   const [mediaAssets, setMediaAssets] = useState(initialMediaAssets);
+  const [birthdayEnabled, setBirthdayEnabled] = useState(initialBirthdayEnabled);
+  const [birthdayDelayMinutes, setBirthdayDelayMinutes] = useState(
+    initialBirthdayDelayMinutes
+  );
+  const [birthdayTemplate, setBirthdayTemplate] = useState(
+    initialBirthdayTemplate
+  );
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{
@@ -224,6 +237,9 @@ export function PostSaleDashboard({
         reviewAttachmentType,
         reviewAttachmentUrl,
         postSaleSequence: postSaleSteps,
+        birthdayEnabled,
+        birthdayDelayMinutes,
+        birthdayTemplate,
       }),
     });
     const result = await response.json().catch(() => ({}));
@@ -307,6 +323,41 @@ export function PostSaleDashboard({
                 }
                 attachmentType={reviewAttachmentType}
               />
+
+              <PostSaleFlowCard
+                trigger="Pedido criado"
+                title="Coleta de aniversário"
+                description="Pede a data de nascimento depois da compra quando o cliente ainda não possui aniversário cadastrado."
+                enabled={birthdayEnabled}
+                onEnabledChange={setBirthdayEnabled}
+                timing={
+                  <AutomationDelayField
+                    delayMinutes={birthdayDelayMinutes}
+                    minMinutes={0}
+                    maxMinutes={43_200}
+                    presets={[
+                      { label: "Imediato", value: 0 },
+                      { label: "1 h", value: 60 },
+                      { label: "1 dia", value: 1_440 },
+                      { label: "3 dias", value: 4_320 },
+                      { label: "7 dias", value: 10_080 },
+                    ]}
+                    onChange={setBirthdayDelayMinutes}
+                  />
+                }
+                attachmentType="none"
+                editMessageHref={null}
+              >
+                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
+                  A variável <strong>{"{{link}}"}</strong> abre a página segura onde o cliente informa a data.
+                </div>
+                <TemplateEditor
+                  value={birthdayTemplate}
+                  onChange={setBirthdayTemplate}
+                  variables={["{{nome}}", "{{loja}}", "{{link}}"]}
+                  label="Mensagem para coletar o aniversário"
+                />
+              </PostSaleFlowCard>
 
               {postSaleSteps.map((step) => {
                 const meta = POST_SALE_STEP_META[step.id];
@@ -578,6 +629,7 @@ function PostSaleFlowCard({
   onEnabledChange,
   timing,
   attachmentType,
+  editMessageHref = "/automations/post-sale?section=messages",
   children,
 }: {
   trigger: string;
@@ -587,6 +639,7 @@ function PostSaleFlowCard({
   onEnabledChange: (value: boolean) => void;
   timing: React.ReactNode;
   attachmentType: AutomationAttachmentType;
+  editMessageHref?: string | null;
   children?: React.ReactNode;
 }) {
   return (
@@ -620,12 +673,14 @@ function PostSaleFlowCard({
               <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
                 {postSaleAttachmentLabel(attachmentType)}
               </span>
-              <Link
-                href="/automations/post-sale?section=messages"
-                className="text-xs font-semibold text-brand-900 underline"
-              >
-                Editar mensagem
-              </Link>
+              {editMessageHref && (
+                <Link
+                  href={editMessageHref}
+                  className="text-xs font-semibold text-brand-900 underline"
+                >
+                  Editar mensagem
+                </Link>
+              )}
             </div>
             {children}
           </div>

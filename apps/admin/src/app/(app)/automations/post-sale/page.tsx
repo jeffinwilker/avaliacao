@@ -1,4 +1,5 @@
 import {
+  DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE,
   DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
   DEFAULT_WHATSAPP_TEMPLATE,
 } from "@avaliacoes/shared";
@@ -44,7 +45,9 @@ export default async function PostSalePage({
            post_purchase_delay_minutes, whatsapp_attachment_type,
            whatsapp_attachment_url, post_purchase_whatsapp_template,
            post_purchase_attachment_type, post_purchase_attachment_url,
-           post_sale_sequence`
+           post_sale_sequence, birthday_collection_enabled,
+           birthday_collection_delay_minutes,
+           birthday_collection_whatsapp_template`
         )
         .eq("store_id", store.id)
         .maybeSingle(),
@@ -150,6 +153,14 @@ export default async function PostSalePage({
           }
         )}
         initialMediaAssets={mediaAssets}
+        initialBirthdayEnabled={settings?.birthday_collection_enabled === true}
+        initialBirthdayDelayMinutes={
+          settings?.birthday_collection_delay_minutes ?? 1_440
+        }
+        initialBirthdayTemplate={
+          settings?.birthday_collection_whatsapp_template ??
+          DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE
+        }
         orders={orders}
         mode={section === "routines" ? "routine" : section}
       />

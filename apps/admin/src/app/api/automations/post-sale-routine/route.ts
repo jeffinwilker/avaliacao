@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { parsePostSaleSequence } from "@/lib/automations";
+import { DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE } from "@avaliacoes/shared";
 
 interface PostSaleRoutineBody {
   storeId?: unknown;
@@ -18,6 +19,9 @@ interface PostSaleRoutineBody {
   postPurchaseAttachmentType?: unknown;
   postPurchaseAttachmentUrl?: unknown;
   postSaleSequence?: unknown;
+  birthdayEnabled?: unknown;
+  birthdayDelayMinutes?: unknown;
+  birthdayTemplate?: unknown;
 }
 
 export async function PUT(req: NextRequest) {
@@ -61,6 +65,12 @@ export async function PUT(req: NextRequest) {
   const confirmationStep = postSaleSequence.find(
     (step) => step.id === "order_created"
   )!;
+  const birthdayEnabled = body?.birthdayEnabled === true;
+  const birthdayDelayMinutes = Number(body?.birthdayDelayMinutes ?? 1_440);
+  const birthdayTemplate =
+    typeof body?.birthdayTemplate === "string"
+      ? body.birthdayTemplate.trim()
+      : DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE;
 
   if (!storeId) {
     return NextResponse.json({ error: "Loja não informada" }, { status: 400 });
@@ -83,6 +93,28 @@ export async function PUT(req: NextRequest) {
   )) {
     return NextResponse.json(
       { error: "As mensagens de pós-venda devem ser enviadas entre 0 minutos e 30 dias" },
+      { status: 400 }
+    );
+  }
+  if (
+    !Number.isInteger(birthdayDelayMinutes) ||
+    birthdayDelayMinutes < 0 ||
+    birthdayDelayMinutes > 43_200
+  ) {
+    return NextResponse.json(
+      { error: "A coleta de aniversário deve sair entre 0 minutos e 30 dias" },
+      { status: 400 }
+    );
+  }
+  if (!birthdayTemplate || birthdayTemplate.length > 4000) {
+    return NextResponse.json(
+      { error: "Escreva a mensagem de coleta de aniversário (até 4000 caracteres)" },
+      { status: 400 }
+    );
+  }
+  if (birthdayEnabled && !birthdayTemplate.includes("{{link}}")) {
+    return NextResponse.json(
+      { error: "A mensagem de aniversário precisa conter {{link}}" },
       { status: 400 }
     );
   }
@@ -157,6 +189,9 @@ export async function PUT(req: NextRequest) {
         attachment_type: step.attachmentType,
         attachment_url: step.attachmentUrl,
       })),
+      birthday_collection_enabled: birthdayEnabled,
+      birthday_collection_delay_minutes: birthdayDelayMinutes,
+      birthday_collection_whatsapp_template: birthdayTemplate,
     },
     { onConflict: "store_id" }
   );
@@ -186,6 +221,16 @@ export async function PUT(req: NextRequest) {
         .update({ status: "cancelled", error_message: "Automação desativada" })
         .eq("store_id", storeId)
         .eq("channel", "whatsapp")
+        .eq("status", "scheduled")
+    );
+  }
+  if (!birthdayEnabled) {
+    cancellations.push(
+      admin
+        .from("automation_messages")
+        .update({ status: "cancelled", error_message: "Automação desativada" })
+        .eq("store_id", storeId)
+        .eq("automation_type", "birthday_collection")
         .eq("status", "scheduled")
     );
   }
