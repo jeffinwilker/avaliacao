@@ -128,7 +128,7 @@ export default async function PostSalePage({
         initialReviewEnabled={settings?.whatsapp_enabled ?? false}
         initialReviewDelayMinutes={
           settings?.review_request_delay_minutes ??
-          (settings?.request_delay_days ?? 7) * 1_440
+          (settings?.request_delay_days ?? 1) * 1_440
         }
         initialReviewTemplate={
           settings?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE

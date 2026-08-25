@@ -289,19 +289,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, orderCreated: true });
   }
 
-  // A solicitação de avaliação continua sendo uma automação de pós-venda
-  // independente da confirmação enviada na criação do pedido.
-  if (payload.event !== "order/paid") {
+  // O convite só nasce depois que a transportadora confirma a entrega.
+  if (trigger !== "tracking_delivered") {
     return NextResponse.json({ ok: true, trigger });
   }
 
   const reviewDelayMinutes = Math.max(
     10,
     settings?.review_request_delay_minutes ??
-      (settings?.request_delay_days ?? 7) * 1_440
+      (settings?.request_delay_days ?? 1) * 1_440
   );
+  const deliveredAt = trackingEvent?.happened_at
+    ? new Date(trackingEvent.happened_at).getTime()
+    : Date.now();
   const reviewScheduledFor = new Date(
-    Date.now() + reviewDelayMinutes * 60_000
+    (Number.isFinite(deliveredAt) ? deliveredAt : Date.now()) +
+      reviewDelayMinutes * 60_000
   ).toISOString();
 
   for (const product of localProducts) {
@@ -312,11 +315,23 @@ export async function POST(req: NextRequest) {
     for (const channel of channels) {
       const { data: existing } = await admin
         .from("review_requests")
-        .select("id")
+        .select("id, status")
         .eq("order_id", orderRow.id)
         .eq("product_id", product.id)
         .eq("channel", channel)
         .maybeSingle();
+      if (existing?.status === "cancelled") {
+        await admin
+          .from("review_requests")
+          .update({
+            status: "scheduled",
+            scheduled_for: reviewScheduledFor,
+            sent_at: null,
+            error_message: null,
+          })
+          .eq("id", existing.id);
+        continue;
+      }
       if (existing) continue;
 
       await admin.from("review_requests").insert({

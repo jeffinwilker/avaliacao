@@ -13,6 +13,15 @@ export async function PUT(req: NextRequest) {
   }
 
   if (
+    body.request_delay_days != null &&
+    (body.request_delay_days < 1 || body.request_delay_days > 60)
+  ) {
+    return NextResponse.json(
+      { error: "O pedido de avaliação deve ficar entre 1 e 60 dias após a entrega" },
+      { status: 400 }
+    );
+  }
+  if (
     body.abandoned_cart_delay_hours != null &&
     (body.abandoned_cart_delay_hours < 6 || body.abandoned_cart_delay_hours > 168)
   ) {
@@ -35,6 +44,10 @@ export async function PUT(req: NextRequest) {
     store_id: body.store_id,
     auto_publish: body.auto_publish,
     request_delay_days: body.request_delay_days,
+    review_request_delay_minutes:
+      body.request_delay_days != null
+        ? Number(body.request_delay_days) * 1_440
+        : undefined,
     email_enabled: body.email_enabled,
     whatsapp_enabled: body.whatsapp_enabled,
     email_subject: body.email_subject,

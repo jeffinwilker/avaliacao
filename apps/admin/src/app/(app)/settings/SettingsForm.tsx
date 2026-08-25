@@ -106,7 +106,7 @@ export function SettingsForm({
       </Section>
 
       <Section title="Solicitação de avaliação por e-mail">
-        <Field label="Dias após o pedido para pedir avaliação">
+        <Field label="Dias após a entrega para pedir avaliação">
           <input
             type="number"
             min={1}

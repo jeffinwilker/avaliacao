@@ -39,7 +39,7 @@ export default async function SettingsPage() {
   const initial = {
     store_id: store.id,
     auto_publish: false,
-    request_delay_days: 7,
+    request_delay_days: 1,
     email_enabled: true,
     whatsapp_enabled: false,
     whatsapp_instance: null,

@@ -70,7 +70,8 @@ para carrinhos criados depois da alteração, evitando disparos retroativos em m
 Os atrasos podem ser informados em minutos, horas ou dias. Para usar essa versão,
 execute também as migrations `0007_abandoned_cart_routines.sql`,
 `0009_flexible_post_sale_delays.sql`, `0010_automation_attachments.sql`,
-`0011_abandoned_cart_coupons.sql` e `0012_post_sale_tracking.sql`.
+`0011_abandoned_cart_coupons.sql`, `0012_post_sale_tracking.sql` e
+`0013_review_after_delivery.sql`.
 
 O pós-venda também reage aos estados de preparação, despacho e rastreamento
 recebidos pela Nuvemshop. Cada estado pode ter mensagem, atraso e anexo próprios,
@@ -78,6 +79,8 @@ com as variáveis `{{codigo_rastreio}}`, `{{link_rastreio}}` e
 `{{status_entrega}}`. A lista de pedidos mostra o código e a linha do tempo da
 entrega. Os eventos detalhados dependem de a transportadora alimentar o rastreio
 na Nuvemshop.
+O convite de avaliação é criado somente quando a entrega é confirmada e, por
+padrão, fica agendado para o dia seguinte.
 
 Cole no tema da loja (Configurações → HTML/CSS → produto.tpl):
 

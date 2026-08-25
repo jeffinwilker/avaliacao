@@ -285,9 +285,9 @@ export function PostSaleDashboard({
           {showRoutine ? (
             <>
               <PostSaleFlowCard
-                trigger="Pedido pago"
+                trigger="Pedido entregue"
                 title="Pedido de avaliação"
-                description="Envia um convite por produto depois da compra."
+                description="Envia um convite por produto depois que a entrega for confirmada."
                 enabled={reviewEnabled}
                 onEnabledChange={setReviewEnabled}
                 timing={
