@@ -11,6 +11,17 @@ export type Channel = (typeof CHANNELS)[number];
 export type MediaType = (typeof MEDIA_TYPES)[number];
 export type AutomationAttachmentType = "none" | "product_image" | "library";
 export type AbandonedCartCouponType = "percentage" | "absolute" | "shipping";
+export type PostSaleTrigger =
+  | "order_created"
+  | "order_paid"
+  | "order_packed"
+  | "order_fulfilled"
+  | "tracking_in_transit"
+  | "tracking_out_for_delivery"
+  | "tracking_ready_for_pickup"
+  | "tracking_delivered"
+  | "tracking_delayed"
+  | "tracking_delivery_attempt_failed";
 
 export interface AutomationMediaAsset {
   name: string;
@@ -48,6 +59,7 @@ export interface StoreSettings {
   postPurchaseDelayHours: number;
   postPurchaseDelayMinutes: number;
   postPurchaseWhatsappTemplate: string | null;
+  postSaleSequence: PostSaleMessageStep[];
   brandColor: string;
   allowMedia: boolean;
   maxMediaPerReview: number;
@@ -66,6 +78,15 @@ export interface AbandonedCartMessageStep {
   couponValue: number;
   couponValidHours: number;
   couponMinPrice: number | null;
+}
+
+export interface PostSaleMessageStep {
+  id: PostSaleTrigger;
+  delayMinutes: number;
+  messageTemplate: string;
+  enabled: boolean;
+  attachmentType: AutomationAttachmentType;
+  attachmentUrl: string | null;
 }
 
 export interface Product {

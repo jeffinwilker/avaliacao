@@ -62,3 +62,86 @@ export const DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE = `Oi {{nome}}! 💛
 Recebemos seu pedido *#{{pedido}}* na {{loja}} com: {{produtos}}.
 
 Estamos preparando tudo com carinho. Se precisar falar com a gente, é só responder esta mensagem.`;
+
+export const DEFAULT_POST_SALE_SEQUENCE = [
+  {
+    id: "order_created" as const,
+    delayMinutes: 0,
+    messageTemplate: DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "order_paid" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}! ✅\n\nO pagamento do pedido *#{{pedido}}* foi confirmado. Já vamos começar a preparar seus produtos.`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "order_packed" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}! 📦\n\nSeu pedido *#{{pedido}}* já foi separado e está pronto para seguir viagem.`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "order_fulfilled" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}! 🚚\n\nSeu pedido *#{{pedido}}* foi enviado.\n\nCódigo de rastreio: *{{codigo_rastreio}}*\nAcompanhe a entrega: {{link_rastreio}}`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "tracking_in_transit" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}! 🚚\n\nSeu pedido *#{{pedido}}* está em trânsito.\n\nAcompanhe aqui: {{link_rastreio}}`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "tracking_out_for_delivery" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}! 🏠\n\nSeu pedido *#{{pedido}}* saiu para entrega. Fique de olho: ele deve chegar em breve!`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "tracking_ready_for_pickup" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}! 📍\n\nSeu pedido *#{{pedido}}* está disponível para retirada. Consulte os detalhes aqui: {{link_rastreio}}`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "tracking_delivered" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}! 💛\n\nSeu pedido *#{{pedido}}* foi entregue. Esperamos que você ame seus produtos!`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "tracking_delayed" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}!\n\nRecebemos uma atualização de que a entrega do pedido *#{{pedido}}* sofreu um atraso. Você pode acompanhar por aqui: {{link_rastreio}}`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+  {
+    id: "tracking_delivery_attempt_failed" as const,
+    delayMinutes: 0,
+    messageTemplate: `Oi {{nome}}!\n\nHouve uma tentativa de entrega do pedido *#{{pedido}}*. Confira o rastreio para ver a próxima atualização: {{link_rastreio}}`,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+  },
+];

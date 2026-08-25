@@ -44,6 +44,8 @@ export interface NuvemshopOrder {
   status: string;
   payment_status?: string;
   shipping_status?: string;
+  shipping_tracking_number?: string | null;
+  shipping_tracking_url?: string | null;
   products: Array<{
     product_id: number;
     variant_id?: number;
@@ -53,6 +55,26 @@ export interface NuvemshopOrder {
   created_at: string;
   paid_at?: string | null;
   shipped_at?: string;
+  fulfillments?: NuvemshopFulfillmentOrder[];
+}
+
+export interface NuvemshopFulfillmentOrder {
+  id: string;
+  number?: string;
+  status?: string;
+  fulfilled_at?: string | null;
+  tracking_info?: {
+    code?: string | null;
+    number?: string | null;
+    url?: string | null;
+  } | null;
+  tracking_events?: Array<{
+    id: string;
+    status: string;
+    description?: string | null;
+    happened_at?: string | null;
+    estimated_delivery_at?: string | null;
+  }>;
 }
 
 export interface NuvemshopAbandonedCheckout {
@@ -343,7 +365,41 @@ export async function fetchOrder(
   token: string,
   orderId: string | number
 ): Promise<NuvemshopOrder> {
-  return request<NuvemshopOrder>("GET", storeId, token, `/orders/${orderId}`);
+  try {
+    return await request<NuvemshopOrder>("GET", storeId, token, `/orders/${orderId}`, {
+      params: { aggregates: "fulfillment_orders" },
+    });
+  } catch (error) {
+    // Mantém compatibilidade enquanto a loja ainda não autorizou o novo escopo.
+    if (!/API (401|403|422)/.test((error as Error).message)) throw error;
+    return request<NuvemshopOrder>("GET", storeId, token, `/orders/${orderId}`);
+  }
+}
+
+export async function fetchFulfillmentOrder(
+  storeId: string,
+  token: string,
+  fulfillmentId: string
+): Promise<NuvemshopFulfillmentOrder> {
+  return request<NuvemshopFulfillmentOrder>(
+    "GET",
+    storeId,
+    token,
+    `/fulfillment-orders/${fulfillmentId}`
+  );
+}
+
+export async function checkFulfillmentOrderAccess(
+  storeId: string,
+  token: string
+): Promise<void> {
+  await request<NuvemshopFulfillmentOrder[]>(
+    "GET",
+    storeId,
+    token,
+    "/fulfillment-orders",
+    { params: { page: 1, per_page: 1 } }
+  );
 }
 
 /**

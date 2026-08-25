@@ -4,6 +4,7 @@ import {
 } from "@avaliacoes/shared";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { listAutomationMedia } from "@/lib/automation-media";
+import { parsePostSaleSequence } from "@/lib/automations";
 import { AutomationNav } from "../AutomationNav";
 import { RunAutomationsButton } from "../RunAutomationsButton";
 import {
@@ -33,7 +34,7 @@ export default async function PostSalePage({
     return <div className="p-8 text-gray-600">Conecte uma loja primeiro.</div>;
   }
 
-  const [settingsResult, ordersResult, postPurchaseResult, reviewsResult, mediaAssets] =
+  const [settingsResult, ordersResult, postPurchaseResult, reviewsResult, deliveryEventsResult, mediaAssets] =
     await Promise.all([
       admin
         .from("store_settings")
@@ -42,7 +43,8 @@ export default async function PostSalePage({
            whatsapp_template, post_purchase_enabled, post_purchase_delay_hours,
            post_purchase_delay_minutes, whatsapp_attachment_type,
            whatsapp_attachment_url, post_purchase_whatsapp_template,
-           post_purchase_attachment_type, post_purchase_attachment_url`
+           post_purchase_attachment_type, post_purchase_attachment_url,
+           post_sale_sequence`
         )
         .eq("store_id", store.id)
         .maybeSingle(),
@@ -50,7 +52,9 @@ export default async function PostSalePage({
         .from("orders")
         .select(
           `id, external_order_id, customer_name, customer_email, customer_phone,
-           status, ordered_at,
+           status, payment_status, shipping_status, fulfillment_status,
+           tracking_status, shipping_tracking_number, shipping_tracking_url,
+           tracking_updated_at, ordered_at,
            order_items (quantity, product:products (id, name, image_url))`
         )
         .eq("store_id", store.id)
@@ -59,7 +63,8 @@ export default async function PostSalePage({
       admin
         .from("automation_messages")
         .select(
-          `external_reference, status, scheduled_for, sent_at, error_message`
+          `external_reference, routine_step_key, tracking_code, tracking_status,
+           status, scheduled_for, sent_at, error_message`
         )
         .eq("store_id", store.id)
         .eq("automation_type", "post_purchase")
@@ -74,10 +79,25 @@ export default async function PostSalePage({
         .eq("channel", "whatsapp")
         .order("created_at", { ascending: false })
         .limit(500),
+      admin
+        .from("order_delivery_events")
+        .select(
+          `order_id, event_type, status, description, tracking_number,
+           tracking_url, happened_at, created_at`
+        )
+        .eq("store_id", store.id)
+        .order("created_at", { ascending: false })
+        .limit(1000),
       listAutomationMedia(admin, store.id),
     ]);
 
-  if (settingsResult.error || postPurchaseResult.error) {
+  if (
+    settingsResult.error ||
+    ordersResult.error ||
+    postPurchaseResult.error ||
+    reviewsResult.error ||
+    deliveryEventsResult.error
+  ) {
     return <MigrationNotice />;
   }
 
@@ -85,7 +105,8 @@ export default async function PostSalePage({
   const orders = normalizeOrders(
     ordersResult.data ?? [],
     postPurchaseResult.data ?? [],
-    reviewsResult.data ?? []
+    reviewsResult.data ?? [],
+    deliveryEventsResult.data ?? []
   );
 
   return (
@@ -114,21 +135,20 @@ export default async function PostSalePage({
         }
         initialReviewAttachmentType={settings?.whatsapp_attachment_type ?? "none"}
         initialReviewAttachmentUrl={settings?.whatsapp_attachment_url ?? null}
-        initialPostPurchaseEnabled={settings?.post_purchase_enabled ?? false}
-        initialPostPurchaseDelayMinutes={
-          settings?.post_purchase_delay_minutes ??
-          (settings?.post_purchase_delay_hours ?? 24) * 60
-        }
-        initialPostPurchaseTemplate={
-          settings?.post_purchase_whatsapp_template ??
-          DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE
-        }
-        initialPostPurchaseAttachmentType={
-          settings?.post_purchase_attachment_type ?? "none"
-        }
-        initialPostPurchaseAttachmentUrl={
-          settings?.post_purchase_attachment_url ?? null
-        }
+        initialPostSaleSequence={parsePostSaleSequence(
+          settings?.post_sale_sequence,
+          {
+            enabled: settings?.post_purchase_enabled,
+            delayMinutes:
+              settings?.post_purchase_delay_minutes ??
+              (settings?.post_purchase_delay_hours ?? 24) * 60,
+            messageTemplate:
+              settings?.post_purchase_whatsapp_template ??
+              DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
+            attachmentType: settings?.post_purchase_attachment_type ?? "none",
+            attachmentUrl: settings?.post_purchase_attachment_url ?? null,
+          }
+        )}
         initialMediaAssets={mediaAssets}
         orders={orders}
         mode={section === "routines" ? "routine" : section}
@@ -160,19 +180,46 @@ function sectionDescription(section: AutomationSection): string {
 function normalizeOrders(
   rows: unknown[],
   postPurchaseRows: unknown[],
-  reviewRows: unknown[]
+  reviewRows: unknown[],
+  deliveryEventRows: unknown[]
 ): PostSaleOrderView[] {
-  const postPurchaseByOrder = new Map<string, PostSaleMessageView>();
+  const postPurchaseByOrder = new Map<string, PostSaleMessageView[]>();
   for (const value of postPurchaseRows) {
     const row = asRecord(value);
     if (!row) continue;
-    postPurchaseByOrder.set(String(row.external_reference || ""), {
+    const reference = String(row.external_reference || "");
+    const messages = postPurchaseByOrder.get(reference) ?? [];
+    messages.push({
+      stepId: String(row.routine_step_key || "order_created"),
+      trackingCode:
+        typeof row.tracking_code === "string" ? row.tracking_code : null,
+      trackingStatus:
+        typeof row.tracking_status === "string" ? row.tracking_status : null,
       status: String(row.status || "scheduled"),
       scheduledFor: String(row.scheduled_for || ""),
       sentAt: typeof row.sent_at === "string" ? row.sent_at : null,
       errorMessage:
         typeof row.error_message === "string" ? row.error_message : null,
     });
+    postPurchaseByOrder.set(reference, messages);
+  }
+
+  const deliveryEventsByOrder = new Map<string, PostSaleOrderView["deliveryEvents"]>();
+  for (const value of deliveryEventRows) {
+    const row = asRecord(value);
+    if (!row) continue;
+    const orderId = String(row.order_id || "");
+    const events = deliveryEventsByOrder.get(orderId) ?? [];
+    events.push({
+      eventType: String(row.event_type || ""),
+      status: String(row.status || ""),
+      description: typeof row.description === "string" ? row.description : null,
+      happenedAt:
+        typeof row.happened_at === "string"
+          ? row.happened_at
+          : String(row.created_at || ""),
+    });
+    deliveryEventsByOrder.set(orderId, events);
   }
 
   const reviewsByOrder = new Map<string, Array<Record<string, unknown>>>();
@@ -216,6 +263,9 @@ function normalizeOrders(
       return {
         id: String(request.id),
         productName: product?.name ?? "Produto",
+        stepId: "review_request",
+        trackingCode: null,
+        trackingStatus: null,
         status: String(request.status || "scheduled"),
         scheduledFor: String(request.scheduled_for || ""),
         sentAt:
@@ -240,8 +290,24 @@ function normalizeOrders(
         productImages,
         orderStatus: String(row.status || "unknown"),
         orderedAt: String(row.ordered_at || ""),
-        postPurchaseMessage:
-          postPurchaseByOrder.get(externalOrderId) ?? null,
+        paymentStatus:
+          typeof row.payment_status === "string" ? row.payment_status : null,
+        shippingStatus:
+          typeof row.shipping_status === "string" ? row.shipping_status : null,
+        fulfillmentStatus:
+          typeof row.fulfillment_status === "string" ? row.fulfillment_status : null,
+        trackingStatus:
+          typeof row.tracking_status === "string" ? row.tracking_status : null,
+        trackingNumber:
+          typeof row.shipping_tracking_number === "string"
+            ? row.shipping_tracking_number
+            : null,
+        trackingUrl:
+          typeof row.shipping_tracking_url === "string"
+            ? row.shipping_tracking_url
+            : null,
+        postSaleMessages: postPurchaseByOrder.get(externalOrderId) ?? [],
+        deliveryEvents: deliveryEventsByOrder.get(orderId) ?? [],
         reviewRequests,
       },
     ];
@@ -266,7 +332,8 @@ function MigrationNotice() {
         A estrutura de pós-venda ainda não está disponível no banco. Execute as
         migrations <code className="font-mono">0006_whatsapp_automations.sql</code>,{" "}
         <code className="font-mono">0009_flexible_post_sale_delays.sql</code> e{" "}
-        <code className="font-mono">0010_automation_attachments.sql</code>{" "}
+        <code className="font-mono">0010_automation_attachments.sql</code> e{" "}
+        <code className="font-mono">0012_post_sale_tracking.sql</code>{" "}
         no Supabase e atualize esta página.
       </div>
     </div>

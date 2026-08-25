@@ -1,10 +1,13 @@
 import {
   DEFAULT_ABANDONED_CART_SEQUENCE,
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
+  DEFAULT_POST_SALE_SEQUENCE,
   DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
   type AbandonedCartMessageStep,
   type AbandonedCartCouponType,
   type AutomationAttachmentType,
+  type PostSaleMessageStep,
+  type PostSaleTrigger,
 } from "@avaliacoes/shared";
 import {
   ensureAbandonedCheckoutCoupon,
@@ -27,6 +30,10 @@ interface AutomationMessageInput {
   link?: string | null;
   scheduledFor: string;
   attachmentUrl?: string | null;
+  routineStepKey?: string;
+  sequenceStep?: number;
+  trackingCode?: string | null;
+  trackingStatus?: string | null;
 }
 
 interface AutomationJob {
@@ -46,6 +53,8 @@ interface AutomationJob {
   coupon_id: number | null;
   coupon_code: string | null;
   coupon_applied_at: string | null;
+  tracking_code: string | null;
+  tracking_status: string | null;
 }
 
 export interface StoredAbandonedCartStep {
@@ -61,6 +70,10 @@ export interface StoredAbandonedCartStep {
   coupon_value: number;
   coupon_valid_hours: number;
   coupon_min_price: number | null;
+}
+
+export interface StoredPostSaleStep extends PostSaleMessageStep {
+  id: PostSaleTrigger;
 }
 
 interface ExistingAutomationMessage {
@@ -338,11 +351,13 @@ export async function queuePostPurchaseMessage(
         customer_phone: input.customerPhone,
         products_summary: input.productsSummary,
         link: input.link || null,
-        routine_step_key: "default",
-        sequence_step: 1,
+        routine_step_key: input.routineStepKey || "order_created",
+        sequence_step: input.sequenceStep || 1,
         scheduled_for: input.scheduledFor,
         attachment_type: input.attachmentUrl ? "image" : "none",
         attachment_url: input.attachmentUrl || null,
+        tracking_code: input.trackingCode || null,
+        tracking_status: input.trackingStatus || null,
       },
       {
         onConflict:
@@ -432,6 +447,8 @@ export async function sendScheduledAutomationMessages(
         `store_id, abandoned_cart_enabled, abandoned_cart_delay_hours,
          abandoned_cart_whatsapp_template, abandoned_cart_sequence,
          post_purchase_enabled, post_purchase_whatsapp_template,
+         post_purchase_delay_minutes, post_purchase_attachment_type,
+         post_purchase_attachment_url, post_sale_sequence,
          whatsapp_instance`
       )
       .in("store_id", storeIds),
@@ -455,10 +472,26 @@ export async function sendScheduledAutomationMessages(
             config.abandoned_cart_whatsapp_template
           ).find((step) => step.id === job.routine_step_key)
         : null;
+    const postSaleStep =
+      type === "post_purchase" && config
+        ? parsePostSaleSequence(config.post_sale_sequence, {
+            enabled: config.post_purchase_enabled,
+            delayMinutes: config.post_purchase_delay_minutes,
+            messageTemplate: config.post_purchase_whatsapp_template,
+            attachmentType: config.post_purchase_attachment_type,
+            attachmentUrl: config.post_purchase_attachment_url,
+          }).find(
+            (step) =>
+              step.id ===
+              (job.routine_step_key === "default"
+                ? "order_created"
+                : job.routine_step_key)
+          )
+        : null;
     const enabled =
       type === "abandoned_cart"
         ? config?.abandoned_cart_enabled && abandonedStep?.enabled
-        : config?.post_purchase_enabled;
+        : postSaleStep?.enabled;
 
     if (!store || !config || !enabled) {
       await admin
@@ -474,7 +507,8 @@ export async function sendScheduledAutomationMessages(
         ? abandonedStep?.message_template ||
           config.abandoned_cart_whatsapp_template ||
           DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE
-        : config.post_purchase_whatsapp_template ||
+        : postSaleStep?.messageTemplate ||
+          config.post_purchase_whatsapp_template ||
           DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE;
 
     try {
@@ -515,13 +549,21 @@ export async function sendScheduledAutomationMessages(
         couponCode && !template.includes("{{cupom}}")
           ? `${template}\n\nUse o cupom *{{cupom}}* no seu carrinho.`
           : template;
-      const message = replaceTemplate(couponTemplate, {
+      const preparedTemplate = removeUnavailableTrackingLines(
+        couponTemplate,
+        job.tracking_code,
+        job.link
+      );
+      const message = replaceTemplate(preparedTemplate, {
         "{{nome}}": firstName(job.customer_name),
         "{{produtos}}": job.products_summary,
         "{{link}}": job.link || "",
         "{{loja}}": store.name,
         "{{pedido}}": job.reference_label || job.external_reference,
         "{{cupom}}": couponCode,
+        "{{codigo_rastreio}}": job.tracking_code || "",
+        "{{link_rastreio}}": job.link || "",
+        "{{status_entrega}}": trackingStatusLabel(job.tracking_status),
         "{{desconto}}": abandonedStep
           ? couponDiscountLabel(abandonedStep)
           : "",
@@ -558,6 +600,108 @@ export async function sendScheduledAutomationMessages(
   }
 
   return result;
+}
+
+export function parsePostSaleSequence(
+  value: unknown,
+  legacy?: {
+    enabled?: boolean | null;
+    delayMinutes?: number | null;
+    messageTemplate?: string | null;
+    attachmentType?: AutomationAttachmentType | null;
+    attachmentUrl?: string | null;
+  }
+): StoredPostSaleStep[] {
+  const rawSteps = Array.isArray(value) ? value : [];
+  const candidates = new Map<string, Record<string, unknown>>();
+  for (const raw of rawSteps) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const candidate = raw as Record<string, unknown>;
+    if (typeof candidate.id === "string") candidates.set(candidate.id, candidate);
+  }
+
+  return DEFAULT_POST_SALE_SEQUENCE.map((defaultStep) => {
+    const candidate = candidates.get(defaultStep.id);
+    const isLegacyConfirmation = defaultStep.id === "order_created" && !candidate;
+    const delay = Number(
+      candidate?.delay_minutes ??
+        candidate?.delayMinutes ??
+        (isLegacyConfirmation ? legacy?.delayMinutes : defaultStep.delayMinutes)
+    );
+    const messageTemplate = String(
+      candidate?.message_template ??
+        candidate?.messageTemplate ??
+        (isLegacyConfirmation ? legacy?.messageTemplate : null) ??
+        defaultStep.messageTemplate
+    ).trim();
+    const attachmentType = parseAttachmentType(
+      candidate?.attachment_type ??
+        candidate?.attachmentType ??
+        (isLegacyConfirmation ? legacy?.attachmentType : defaultStep.attachmentType)
+    );
+    const attachmentUrlValue =
+      candidate?.attachment_url ??
+      candidate?.attachmentUrl ??
+      (isLegacyConfirmation ? legacy?.attachmentUrl : defaultStep.attachmentUrl);
+
+    return {
+      id: defaultStep.id,
+      delayMinutes: Number.isInteger(delay)
+        ? Math.max(0, Math.min(43_200, delay))
+        : defaultStep.delayMinutes,
+      messageTemplate: messageTemplate.slice(0, 4000) || defaultStep.messageTemplate,
+      enabled:
+        typeof candidate?.enabled === "boolean"
+          ? candidate.enabled
+          : isLegacyConfirmation
+            ? legacy?.enabled === true
+            : defaultStep.enabled,
+      attachmentType,
+      attachmentUrl:
+        attachmentType === "library" &&
+        typeof attachmentUrlValue === "string" &&
+        /^https:\/\//i.test(attachmentUrlValue)
+          ? attachmentUrlValue
+          : null,
+    };
+  });
+}
+
+function parseAttachmentType(value: unknown): AutomationAttachmentType {
+  return value === "product_image" || value === "library" ? value : "none";
+}
+
+function trackingStatusLabel(status: string | null): string {
+  const labels: Record<string, string> = {
+    dispatched: "Postado",
+    received_by_post_office: "Recebido pela transportadora",
+    in_transit: "Em trânsito",
+    out_for_delivery: "Saiu para entrega",
+    delivery_attempt_failed: "Tentativa de entrega",
+    delayed: "Entrega atrasada",
+    ready_for_pickup: "Disponível para retirada",
+    delivered: "Entregue",
+    returned_to_sender: "Devolvido ao remetente",
+    lost: "Objeto extraviado",
+  };
+  return status ? labels[status.toLowerCase()] || status : "";
+}
+
+function removeUnavailableTrackingLines(
+  template: string,
+  trackingCode: string | null,
+  trackingUrl: string | null
+): string {
+  return template
+    .split("\n")
+    .filter(
+      (line) =>
+        (trackingCode || !line.includes("{{codigo_rastreio}}")) &&
+        (trackingUrl || !line.includes("{{link_rastreio}}"))
+    )
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function parseAbandonedCartSequence(

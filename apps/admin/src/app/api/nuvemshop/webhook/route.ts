@@ -3,18 +3,39 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   cancelAbandonedCartForOrder,
   cancelMessagesForOrder,
+  parsePostSaleSequence,
   queuePostPurchaseMessage,
   summarizeProducts,
 } from "@/lib/automations";
-import { fetchOrder } from "@/lib/nuvemshop";
+import {
+  fetchFulfillmentOrder,
+  fetchOrder,
+  type NuvemshopFulfillmentOrder,
+} from "@/lib/nuvemshop";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const HANDLED_EVENTS = [
   "order/created",
   "order/paid",
+  "order/packed",
   "order/fulfilled",
   "order/cancelled",
+  "fulfillment_order/status_updated",
+  "fulfillment_order/label_status_updated",
+  "fulfillment_order/tracking_event_created",
+  "fulfillment_order/tracking_event_updated",
 ] as const;
+
+interface WebhookPayload {
+  store_id: number | string;
+  event: string;
+  id?: number | string;
+  order_id?: number | string;
+  fulfillment_id?: string;
+  tracking_event_id?: string;
+  status?: string;
+  tracking_info?: { code?: string | null; url?: string | null } | null;
+}
 
 // A fila usa chaves únicas e consultas de existência porque a Nuvemshop
 // pode reenviar eventos ou entregá-los fora de ordem.
@@ -26,7 +47,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  let payload: { store_id: number; event: string; id: number };
+  let payload: WebhookPayload;
   try {
     payload = JSON.parse(body);
   } catch {
@@ -39,7 +60,10 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient();
   const externalStoreId = String(payload.store_id);
-  const externalOrderId = String(payload.id);
+  const externalOrderId = String(payload.order_id ?? payload.id ?? "");
+  if (!externalOrderId) {
+    return NextResponse.json({ error: "Order not informed" }, { status: 400 });
+  }
   const { data: store } = await admin
     .from("stores")
     .select("id, name, domain, access_token")
@@ -51,7 +75,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Store not connected" }, { status: 404 });
   }
 
-  const order = await fetchOrder(externalStoreId, store.access_token, payload.id);
+  const order = await fetchOrder(
+    externalStoreId,
+    store.access_token,
+    externalOrderId
+  );
+  const fulfillment = await resolveFulfillment(
+    externalStoreId,
+    store.access_token,
+    payload.fulfillment_id,
+    order.fulfillments
+  );
+  const trackingEvent = resolveTrackingEvent(fulfillment, payload.tracking_event_id);
+  const trackingNumber =
+    payload.tracking_info?.code ||
+    fulfillment?.tracking_info?.code ||
+    fulfillment?.tracking_info?.number ||
+    order.shipping_tracking_number ||
+    null;
+  const trackingUrl =
+    payload.tracking_info?.url ||
+    fulfillment?.tracking_info?.url ||
+    order.shipping_tracking_url ||
+    null;
+  const fulfillmentStatus = resolveFulfillmentStatus(payload, fulfillment);
+  const trackingStatus = resolveTrackingStatus(payload, trackingEvent);
+  const trigger = resolvePostSaleTrigger(
+    payload.event,
+    fulfillmentStatus,
+    trackingStatus
+  );
   const customerName = order.customer?.name || order.contact_name || "Cliente";
   const customerEmail = order.customer?.email || order.contact_email || null;
   const customerPhone = order.customer?.phone || order.contact_phone || null;
@@ -65,9 +118,24 @@ export async function POST(req: NextRequest) {
         customer_name: customerName,
         customer_email: customerEmail,
         customer_phone: customerPhone,
-        status: order.payment_status || order.status,
+        status: resolveOrderStatus(payload.event, order, fulfillmentStatus, trackingStatus),
+        payment_status: order.payment_status || null,
+        shipping_status: order.shipping_status || null,
+        fulfillment_status: fulfillmentStatus,
+        tracking_status: trackingStatus,
+        shipping_tracking_number: trackingNumber,
+        shipping_tracking_url: trackingUrl,
+        tracking_updated_at:
+          fulfillmentStatus || trackingStatus || trackingNumber
+            ? new Date().toISOString()
+            : null,
         ordered_at: order.created_at,
-        delivered_at: order.shipped_at || null,
+        ...(trackingStatus === "delivered" || fulfillmentStatus === "DELIVERED"
+          ? {
+              delivered_at:
+                trackingEvent?.happened_at || new Date().toISOString(),
+            }
+          : {}),
       },
       { onConflict: "store_id,external_order_id" }
     )
@@ -98,6 +166,26 @@ export async function POST(req: NextRequest) {
         .eq("status", "scheduled"),
     ]);
     return NextResponse.json({ ok: true, cancelled: true });
+  }
+
+  if (isDeliveryEvent(payload.event)) {
+    await storeDeliveryEvent(admin, {
+      storeId: store.id,
+      orderId: orderRow.id,
+      externalOrderId,
+      payload,
+      trigger: trigger || payload.event,
+      status:
+        trackingStatus ||
+        fulfillmentStatus ||
+        order.shipping_status ||
+        trigger ||
+        payload.event,
+      description: trackingEvent?.description || null,
+      trackingNumber,
+      trackingUrl,
+      happenedAt: trackingEvent?.happened_at || null,
+    });
   }
 
   const localProducts: Array<{
@@ -135,33 +223,42 @@ export async function POST(req: NextRequest) {
       `request_delay_days, review_request_delay_minutes,
        email_enabled, whatsapp_enabled, post_purchase_enabled,
        post_purchase_delay_hours, post_purchase_delay_minutes,
-       post_purchase_attachment_type, post_purchase_attachment_url`
+       post_purchase_whatsapp_template, post_purchase_attachment_type,
+       post_purchase_attachment_url, post_sale_sequence`
     )
     .eq("store_id", store.id)
     .maybeSingle();
 
-  if (payload.event === "order/created") {
-    const productsSummary = summarizeProducts(
-      (order.products ?? []).map((item) => ({
-        name:
-          item.name ||
-          localNamesByExternalId.get(String(item.product_id)) ||
-          "Produto",
-        quantity: item.quantity,
-      }))
-    );
+  const productsSummary = summarizeProducts(
+    (order.products ?? []).map((item) => ({
+      name:
+        item.name ||
+        localNamesByExternalId.get(String(item.product_id)) ||
+        "Produto",
+      quantity: item.quantity,
+    }))
+  );
 
-    if (settings?.post_purchase_enabled && customerPhone) {
-      const createdAt = new Date(order.created_at).getTime();
-      const baseTime = Number.isFinite(createdAt) ? createdAt : Date.now();
-      const delayMinutes = Math.max(
-        0,
-        settings.post_purchase_delay_minutes ??
-          (settings.post_purchase_delay_hours ?? 0) * 60
-      );
+  if (trigger && customerPhone) {
+    const steps = parsePostSaleSequence(settings?.post_sale_sequence, {
+      enabled: settings?.post_purchase_enabled,
+      delayMinutes:
+        settings?.post_purchase_delay_minutes ??
+        (settings?.post_purchase_delay_hours ?? 0) * 60,
+      messageTemplate: settings?.post_purchase_whatsapp_template,
+      attachmentType: settings?.post_purchase_attachment_type,
+      attachmentUrl: settings?.post_purchase_attachment_url,
+    });
+    const stepIndex = steps.findIndex((item) => item.id === trigger);
+    const step = steps[stepIndex];
+    if (step?.enabled && hasRequiredTracking(step.messageTemplate, trackingNumber, trackingUrl)) {
+      const baseTime =
+        trigger === "order_created"
+          ? new Date(order.created_at).getTime()
+          : Date.now();
       const attachmentUrl = resolveAttachmentUrl(
-        settings.post_purchase_attachment_type,
-        settings.post_purchase_attachment_url,
+        step.attachmentType,
+        step.attachmentUrl,
         localProducts.find((product) => product.imageUrl)?.imageUrl || null
       );
       await queuePostPurchaseMessage(admin, {
@@ -172,17 +269,32 @@ export async function POST(req: NextRequest) {
         customerName,
         customerPhone,
         productsSummary: productsSummary || "seus produtos",
-        link: store.domain ? normalizeStoreUrl(store.domain) : null,
-        scheduledFor: new Date(baseTime + delayMinutes * 60_000).toISOString(),
+        link:
+          trackingUrl ||
+          (store.domain ? normalizeStoreUrl(store.domain) : null),
+        scheduledFor: new Date(
+          (Number.isFinite(baseTime) ? baseTime : Date.now()) +
+            step.delayMinutes * 60_000
+        ).toISOString(),
         attachmentUrl,
+        routineStepKey: step.id,
+        sequenceStep: stepIndex + 1,
+        trackingCode: trackingNumber,
+        trackingStatus: trackingStatus || fulfillmentStatus,
       });
     }
+  }
 
+  if (payload.event === "order/created") {
     return NextResponse.json({ ok: true, orderCreated: true });
   }
 
   // A solicitação de avaliação continua sendo uma automação de pós-venda
   // independente da confirmação enviada na criação do pedido.
+  if (payload.event !== "order/paid") {
+    return NextResponse.json({ ok: true, trigger });
+  }
+
   const reviewDelayMinutes = Math.max(
     10,
     settings?.review_request_delay_minutes ??
@@ -218,6 +330,163 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+async function resolveFulfillment(
+  storeId: string,
+  token: string,
+  fulfillmentId: string | undefined,
+  fulfillments: NuvemshopFulfillmentOrder[] | undefined
+): Promise<NuvemshopFulfillmentOrder | null> {
+  if (fulfillmentId) {
+    try {
+      return await fetchFulfillmentOrder(storeId, token, fulfillmentId);
+    } catch {
+      // O webhook ainda pode ser processado com o status que veio no payload.
+    }
+  }
+  return (
+    fulfillments?.find((item) => item.id === fulfillmentId) ||
+    fulfillments?.[0] ||
+    null
+  );
+}
+
+function resolveTrackingEvent(
+  fulfillment: NuvemshopFulfillmentOrder | null,
+  eventId: string | undefined
+) {
+  if (!fulfillment?.tracking_events?.length) return null;
+  return (
+    fulfillment.tracking_events.find((item) => item.id === eventId) ||
+    fulfillment.tracking_events.at(-1) ||
+    null
+  );
+}
+
+function resolveFulfillmentStatus(
+  payload: WebhookPayload,
+  fulfillment: NuvemshopFulfillmentOrder | null
+): string | null {
+  if (payload.event === "fulfillment_order/status_updated" && payload.status) {
+    return payload.status.toUpperCase();
+  }
+  return fulfillment?.status?.toUpperCase() || null;
+}
+
+function resolveTrackingStatus(
+  payload: WebhookPayload,
+  trackingEvent: { status: string } | null
+): string | null {
+  if (payload.event.includes("tracking_event") && payload.status) {
+    return payload.status.toLowerCase();
+  }
+  return trackingEvent?.status?.toLowerCase() || null;
+}
+
+function resolvePostSaleTrigger(
+  event: string,
+  fulfillmentStatus: string | null,
+  trackingStatus: string | null
+) {
+  if (event === "order/created") return "order_created" as const;
+  if (event === "order/paid") return "order_paid" as const;
+  if (event === "order/packed") return "order_packed" as const;
+  if (event === "order/fulfilled") return "order_fulfilled" as const;
+
+  const macroTriggers: Record<string, "order_packed" | "order_fulfilled" | "tracking_ready_for_pickup" | "tracking_delivered"> = {
+    PACKED: "order_packed",
+    DISPATCHED: "order_fulfilled",
+    READY_FOR_PICKUP: "tracking_ready_for_pickup",
+    DELIVERED: "tracking_delivered",
+  };
+  const trackingTriggers: Record<string, "order_fulfilled" | "tracking_in_transit" | "tracking_out_for_delivery" | "tracking_ready_for_pickup" | "tracking_delivered" | "tracking_delayed" | "tracking_delivery_attempt_failed"> = {
+    dispatched: "order_fulfilled",
+    received_by_post_office: "tracking_in_transit",
+    in_transit: "tracking_in_transit",
+    out_for_delivery: "tracking_out_for_delivery",
+    ready_for_pickup: "tracking_ready_for_pickup",
+    delivered: "tracking_delivered",
+    delayed: "tracking_delayed",
+    delivery_attempt_failed: "tracking_delivery_attempt_failed",
+  };
+  return (
+    (trackingStatus ? trackingTriggers[trackingStatus] : null) ||
+    (fulfillmentStatus ? macroTriggers[fulfillmentStatus] : null) ||
+    null
+  );
+}
+
+function resolveOrderStatus(
+  event: string,
+  order: { status: string; payment_status?: string; shipping_status?: string },
+  fulfillmentStatus: string | null,
+  trackingStatus: string | null
+): string {
+  if (event === "order/cancelled") return "cancelled";
+  if (trackingStatus === "delivered" || fulfillmentStatus === "DELIVERED") {
+    return "delivered";
+  }
+  if (trackingStatus === "out_for_delivery") return "out_for_delivery";
+  if (trackingStatus === "in_transit") return "in_transit";
+  if (fulfillmentStatus === "DISPATCHED" || order.shipping_status === "fulfilled") {
+    return "fulfilled";
+  }
+  if (fulfillmentStatus === "PACKED" || event === "order/packed") return "packed";
+  return order.payment_status || order.status;
+}
+
+function hasRequiredTracking(
+  template: string,
+  trackingNumber: string | null,
+  trackingUrl: string | null
+): boolean {
+  const usesTracking =
+    template.includes("{{codigo_rastreio}}") ||
+    template.includes("{{link_rastreio}}");
+  if (usesTracking && !trackingNumber && !trackingUrl) return false;
+  return true;
+}
+
+function isDeliveryEvent(event: string): boolean {
+  return (
+    event === "order/packed" ||
+    event === "order/fulfilled" ||
+    event.startsWith("fulfillment_order/")
+  );
+}
+
+async function storeDeliveryEvent(
+  admin: ReturnType<typeof createAdminClient>,
+  input: {
+    storeId: string;
+    orderId: string;
+    externalOrderId: string;
+    payload: WebhookPayload;
+    trigger: string;
+    status: string;
+    description: string | null;
+    trackingNumber: string | null;
+    trackingUrl: string | null;
+    happenedAt: string | null;
+  }
+) {
+  const eventIdentity =
+    input.payload.tracking_event_id || input.payload.fulfillment_id || input.externalOrderId;
+  await admin.from("order_delivery_events").upsert(
+    {
+      store_id: input.storeId,
+      order_id: input.orderId,
+      external_event_key: `${input.payload.event}:${eventIdentity}:${input.status}`,
+      event_type: input.payload.event,
+      status: input.status,
+      description: input.description,
+      tracking_number: input.trackingNumber,
+      tracking_url: input.trackingUrl,
+      happened_at: input.happenedAt,
+    },
+    { onConflict: "store_id,external_event_key", ignoreDuplicates: true }
+  );
 }
 
 function isValidSignature(body: string, signature: string | null): boolean {

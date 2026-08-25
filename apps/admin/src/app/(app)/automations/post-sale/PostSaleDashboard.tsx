@@ -6,11 +6,16 @@ import Link from "next/link";
 import type {
   AutomationAttachmentType,
   AutomationMediaAsset,
+  PostSaleMessageStep,
+  PostSaleTrigger,
 } from "@avaliacoes/shared";
 import { AutomationAttachmentPicker } from "../AutomationAttachmentPicker";
 import { AutomationDelayField } from "../AutomationDelayField";
 
 export interface PostSaleMessageView {
+  stepId: string;
+  trackingCode: string | null;
+  trackingStatus: string | null;
   status: string;
   scheduledFor: string;
   sentAt: string | null;
@@ -31,8 +36,20 @@ export interface PostSaleOrderView {
   productsSummary: string;
   productImages: string[];
   orderStatus: string;
+  paymentStatus: string | null;
+  shippingStatus: string | null;
+  fulfillmentStatus: string | null;
+  trackingStatus: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
   orderedAt: string;
-  postPurchaseMessage: PostSaleMessageView | null;
+  postSaleMessages: PostSaleMessageView[];
+  deliveryEvents: Array<{
+    eventType: string;
+    status: string;
+    description: string | null;
+    happenedAt: string;
+  }>;
   reviewRequests: ReviewRequestView[];
 }
 
@@ -43,11 +60,7 @@ interface PostSaleDashboardProps {
   initialReviewTemplate: string;
   initialReviewAttachmentType: AutomationAttachmentType;
   initialReviewAttachmentUrl: string | null;
-  initialPostPurchaseEnabled: boolean;
-  initialPostPurchaseDelayMinutes: number;
-  initialPostPurchaseTemplate: string;
-  initialPostPurchaseAttachmentType: AutomationAttachmentType;
-  initialPostPurchaseAttachmentUrl: string | null;
+  initialPostSaleSequence: PostSaleMessageStep[];
   initialMediaAssets: AutomationMediaAsset[];
   orders: PostSaleOrderView[];
   mode?: "all" | "routine" | "messages" | "orders";
@@ -58,6 +71,72 @@ const dateTime = new Intl.DateTimeFormat("pt-BR", {
   timeStyle: "short",
 });
 
+const POST_SALE_STEP_META: Record<
+  PostSaleTrigger,
+  { trigger: string; title: string; description: string; tracking: boolean }
+> = {
+  order_created: {
+    trigger: "Pedido criado",
+    title: "Confirmação de pedido",
+    description: "Avisa o cliente assim que o pedido é recebido.",
+    tracking: false,
+  },
+  order_paid: {
+    trigger: "Pagamento aprovado",
+    title: "Pagamento confirmado",
+    description: "Confirma que o pagamento foi aprovado.",
+    tracking: false,
+  },
+  order_packed: {
+    trigger: "Pedido preparado",
+    title: "Pedido separado",
+    description: "Avisa que os produtos já foram separados para envio.",
+    tracking: false,
+  },
+  order_fulfilled: {
+    trigger: "Pedido despachado",
+    title: "Envio com rastreio",
+    description: "Envia o código e o link de rastreamento.",
+    tracking: true,
+  },
+  tracking_in_transit: {
+    trigger: "Objeto em trânsito",
+    title: "Atualização de transporte",
+    description: "Informa que a encomenda está seguindo para o destino.",
+    tracking: true,
+  },
+  tracking_out_for_delivery: {
+    trigger: "Saiu para entrega",
+    title: "Saiu para entrega",
+    description: "Avisa que a entrega deve acontecer em breve.",
+    tracking: true,
+  },
+  tracking_ready_for_pickup: {
+    trigger: "Disponível para retirada",
+    title: "Pedido disponível para retirada",
+    description: "Avisa quando o pedido pode ser retirado pelo cliente.",
+    tracking: true,
+  },
+  tracking_delivered: {
+    trigger: "Pedido entregue",
+    title: "Confirmação de entrega",
+    description: "Confirma que a transportadora marcou o pedido como entregue.",
+    tracking: true,
+  },
+  tracking_delayed: {
+    trigger: "Entrega atrasada",
+    title: "Aviso de atraso",
+    description: "Avisa o cliente quando a transportadora informa atraso.",
+    tracking: true,
+  },
+  tracking_delivery_attempt_failed: {
+    trigger: "Tentativa sem sucesso",
+    title: "Tentativa de entrega",
+    description: "Informa que houve uma tentativa de entrega sem sucesso.",
+    tracking: true,
+  },
+};
+
 export function PostSaleDashboard({
   storeId,
   initialReviewEnabled,
@@ -65,11 +144,7 @@ export function PostSaleDashboard({
   initialReviewTemplate,
   initialReviewAttachmentType,
   initialReviewAttachmentUrl,
-  initialPostPurchaseEnabled,
-  initialPostPurchaseDelayMinutes,
-  initialPostPurchaseTemplate,
-  initialPostPurchaseAttachmentType,
-  initialPostPurchaseAttachmentUrl,
+  initialPostSaleSequence,
   initialMediaAssets,
   orders,
   mode = "orders",
@@ -86,21 +161,7 @@ export function PostSaleDashboard({
   const [reviewAttachmentUrl, setReviewAttachmentUrl] = useState(
     initialReviewAttachmentUrl
   );
-  const [postPurchaseEnabled, setPostPurchaseEnabled] = useState(
-    initialPostPurchaseEnabled
-  );
-  const [postPurchaseDelayMinutes, setPostPurchaseDelayMinutes] = useState(
-    initialPostPurchaseDelayMinutes
-  );
-  const [postPurchaseTemplate, setPostPurchaseTemplate] = useState(
-    initialPostPurchaseTemplate
-  );
-  const [postPurchaseAttachmentType, setPostPurchaseAttachmentType] = useState(
-    initialPostPurchaseAttachmentType
-  );
-  const [postPurchaseAttachmentUrl, setPostPurchaseAttachmentUrl] = useState(
-    initialPostPurchaseAttachmentUrl
-  );
+  const [postSaleSteps, setPostSaleSteps] = useState(initialPostSaleSequence);
   const [mediaAssets, setMediaAssets] = useState(initialMediaAssets);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
@@ -127,13 +188,27 @@ export function PostSaleDashboard({
 
   const counts = useMemo(() => {
     const requests = orders.flatMap((order) => order.reviewRequests);
+    const messages = orders.flatMap((order) => order.postSaleMessages);
     return {
       orders: orders.length,
-      scheduled: requests.filter((request) => request.status === "scheduled").length,
-      sent: requests.filter((request) => request.status === "sent").length,
+      scheduled:
+        requests.filter((request) => request.status === "scheduled").length +
+        messages.filter((message) => message.status === "scheduled").length,
+      sent:
+        requests.filter((request) => request.status === "sent").length +
+        messages.filter((message) => message.status === "sent").length,
       completed: requests.filter((request) => request.status === "completed").length,
     };
   }, [orders]);
+
+  function updatePostSaleStep(
+    id: PostSaleTrigger,
+    updates: Partial<PostSaleMessageStep>
+  ) {
+    setPostSaleSteps((current) =>
+      current.map((step) => (step.id === id ? { ...step, ...updates } : step))
+    );
+  }
 
   async function saveRoutine() {
     setSaving(true);
@@ -148,11 +223,7 @@ export function PostSaleDashboard({
         reviewTemplate,
         reviewAttachmentType,
         reviewAttachmentUrl,
-        postPurchaseEnabled,
-        postPurchaseDelayMinutes,
-        postPurchaseTemplate,
-        postPurchaseAttachmentType,
-        postPurchaseAttachmentUrl,
+        postSaleSequence: postSaleSteps,
       }),
     });
     const result = await response.json().catch(() => ({}));
@@ -237,33 +308,45 @@ export function PostSaleDashboard({
                 attachmentType={reviewAttachmentType}
               />
 
-              <PostSaleFlowCard
-                trigger="Pedido criado"
-                title="Confirmação de pedido"
-                description="Dispara quando um novo pedido é criado, antes da confirmação do pagamento."
-                enabled={postPurchaseEnabled}
-                onEnabledChange={setPostPurchaseEnabled}
-                timing={
-                  <AutomationDelayField
-                    delayMinutes={postPurchaseDelayMinutes}
-                    minMinutes={0}
-                    maxMinutes={43_200}
-                    presets={[
-                      { label: "Imediato", value: 0 },
-                      { label: "10 min", value: 10 },
-                      { label: "30 min", value: 30 },
-                      { label: "1 h", value: 60 },
-                      { label: "1 dia", value: 1_440 },
-                    ]}
-                    onChange={setPostPurchaseDelayMinutes}
-                  />
-                }
-                attachmentType={postPurchaseAttachmentType}
-              >
-                <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
-                  Com <strong>0 minutos</strong>, a mensagem sai no próximo processamento da fila.
-                </div>
-              </PostSaleFlowCard>
+              {postSaleSteps.map((step) => {
+                const meta = POST_SALE_STEP_META[step.id];
+                return (
+                  <PostSaleFlowCard
+                    key={step.id}
+                    trigger={meta.trigger}
+                    title={meta.title}
+                    description={meta.description}
+                    enabled={step.enabled}
+                    onEnabledChange={(enabled) =>
+                      updatePostSaleStep(step.id, { enabled })
+                    }
+                    timing={
+                      <AutomationDelayField
+                        delayMinutes={step.delayMinutes}
+                        minMinutes={0}
+                        maxMinutes={43_200}
+                        presets={[
+                          { label: "Imediato", value: 0 },
+                          { label: "10 min", value: 10 },
+                          { label: "30 min", value: 30 },
+                          { label: "1 h", value: 60 },
+                          { label: "1 dia", value: 1_440 },
+                        ]}
+                        onChange={(delayMinutes) =>
+                          updatePostSaleStep(step.id, { delayMinutes })
+                        }
+                      />
+                    }
+                    attachmentType={step.attachmentType}
+                  >
+                    {step.delayMinutes === 0 && (
+                      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
+                        A mensagem sai no próximo processamento da fila depois que o estado for recebido.
+                      </div>
+                    )}
+                  </PostSaleFlowCard>
+                );
+              })}
             </>
           ) : (
             <>
@@ -300,39 +383,57 @@ export function PostSaleDashboard({
 
               <ReviewFormPreview />
 
-              <MessageTemplateCard
-                title="Confirmação de pedido"
-                description="Avisa o cliente que o pedido foi recebido."
-              >
-                <TemplateEditor
-                  value={postPurchaseTemplate}
-                  onChange={setPostPurchaseTemplate}
-                  variables={[
-                    "{{nome}}",
-                    "{{pedido}}",
-                    "{{produtos}}",
-                    "{{loja}}",
-                    "{{link}}",
-                  ]}
-                  label="Mensagem de confirmação do pedido"
-                />
-                <AutomationAttachmentPicker
-                  storeId={storeId}
-                  attachmentType={postPurchaseAttachmentType}
-                  attachmentUrl={postPurchaseAttachmentUrl}
-                  assets={mediaAssets}
-                  onChange={(attachmentType, attachmentUrl) => {
-                    setPostPurchaseAttachmentType(attachmentType);
-                    setPostPurchaseAttachmentUrl(attachmentUrl);
-                  }}
-                  onAssetUploaded={(asset) =>
-                    setMediaAssets((current) => [
-                      asset,
-                      ...current.filter((item) => item.path !== asset.path),
-                    ])
-                  }
-                />
-              </MessageTemplateCard>
+              {postSaleSteps.map((step) => {
+                const meta = POST_SALE_STEP_META[step.id];
+                return (
+                  <MessageTemplateCard
+                    key={step.id}
+                    title={meta.title}
+                    description={meta.description}
+                  >
+                    {meta.tracking && (
+                      <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
+                        Use <strong>{"{{codigo_rastreio}}"}</strong>, <strong>{"{{link_rastreio}}"}</strong> e <strong>{"{{status_entrega}}"}</strong> para inserir os dados recebidos da transportadora.
+                      </div>
+                    )}
+                    <TemplateEditor
+                      value={step.messageTemplate}
+                      onChange={(messageTemplate) =>
+                        updatePostSaleStep(step.id, { messageTemplate })
+                      }
+                      variables={[
+                        "{{nome}}",
+                        "{{pedido}}",
+                        "{{produtos}}",
+                        "{{loja}}",
+                        "{{link}}",
+                        "{{codigo_rastreio}}",
+                        "{{link_rastreio}}",
+                        "{{status_entrega}}",
+                      ]}
+                      label={`Mensagem: ${meta.title}`}
+                    />
+                    <AutomationAttachmentPicker
+                      storeId={storeId}
+                      attachmentType={step.attachmentType}
+                      attachmentUrl={step.attachmentUrl}
+                      assets={mediaAssets}
+                      onChange={(attachmentType, attachmentUrl) =>
+                        updatePostSaleStep(step.id, {
+                          attachmentType,
+                          attachmentUrl,
+                        })
+                      }
+                      onAssetUploaded={(asset) =>
+                        setMediaAssets((current) => [
+                          asset,
+                          ...current.filter((item) => item.path !== asset.path),
+                        ])
+                      }
+                    />
+                  </MessageTemplateCard>
+                );
+              })}
             </>
           )}
         </div>
@@ -364,13 +465,14 @@ export function PostSaleDashboard({
 
         {filteredOrders.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] text-sm">
+            <table className="w-full min-w-[1440px] text-sm">
               <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-5 py-3 text-left">Pedido</th>
                   <th className="px-5 py-3 text-left">Cliente</th>
                   <th className="px-5 py-3 text-left">Produtos</th>
-                  <th className="px-5 py-3 text-left">Confirmação do pedido</th>
+                  <th className="px-5 py-3 text-left">Entrega e rastreio</th>
+                  <th className="px-5 py-3 text-left">Mensagens de pós-venda</th>
                   <th className="px-5 py-3 text-left">Pedido de avaliação</th>
                 </tr>
               </thead>
@@ -416,8 +518,24 @@ export function PostSaleDashboard({
                         </div>
                       </div>
                     </td>
-                    <td className="min-w-[180px] px-5 py-4">
-                      <MessageStatus message={order.postPurchaseMessage} empty="Sem envio" />
+                    <td className="min-w-[235px] px-5 py-4">
+                      <DeliveryStatus order={order} />
+                    </td>
+                    <td className="min-w-[230px] px-5 py-4">
+                      {order.postSaleMessages.length ? (
+                        <div className="space-y-2">
+                          {order.postSaleMessages.map((message) => (
+                            <div key={`${message.stepId}-${message.scheduledFor}`}>
+                              <div className="text-xs font-medium text-gray-700">
+                                {postSaleStepLabel(message.stepId)}
+                              </div>
+                              <MessageStatus message={message} empty="Sem envio" compact />
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">Nenhuma mensagem</span>
+                      )}
                     </td>
                     <td className="min-w-[260px] px-5 py-4">
                       {order.reviewRequests.length ? (
@@ -713,6 +831,96 @@ function MessageStatus({
   );
 }
 
+function DeliveryStatus({ order }: { order: PostSaleOrderView }) {
+  const current =
+    order.trackingStatus || order.fulfillmentStatus || order.shippingStatus;
+  return (
+    <div>
+      <span className={deliveryStatusClass(current)}>
+        {deliveryStatusLabel(current)}
+      </span>
+      {order.trackingNumber && (
+        <div className="mt-2 text-xs text-gray-600">
+          Código: <strong className="font-mono text-gray-900">{order.trackingNumber}</strong>
+        </div>
+      )}
+      {order.trackingUrl && (
+        <a
+          href={order.trackingUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 inline-block text-xs font-semibold text-brand-900 underline"
+        >
+          Acompanhar entrega ↗
+        </a>
+      )}
+      {order.deliveryEvents.length > 0 && (
+        <div className="mt-3 space-y-1.5 border-l border-gray-200 pl-3">
+          {order.deliveryEvents.slice(0, 3).map((event, index) => (
+            <div
+              key={`${event.eventType}-${event.status}-${index}`}
+              className="text-xs text-gray-500"
+              title={event.description || deliveryStatusLabel(event.status)}
+            >
+              <span className="font-medium text-gray-700">
+                {deliveryStatusLabel(event.status)}
+              </span>{" "}
+              · {safeDateTime(event.happenedAt)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function deliveryStatusLabel(status: string | null): string {
+  if (!status) return "Aguardando envio";
+  const labels: Record<string, string> = {
+    unpacked: "Aguardando preparo",
+    unfulfilled: "Aguardando envio",
+    packed: "Pedido preparado",
+    PACKED: "Pedido preparado",
+    fulfilled: "Enviado",
+    dispatched: "Postado",
+    DISPATCHED: "Enviado",
+    received_by_post_office: "Recebido pela transportadora",
+    in_transit: "Em trânsito",
+    out_for_delivery: "Saiu para entrega",
+    ready_for_pickup: "Disponível para retirada",
+    READY_FOR_PICKUP: "Disponível para retirada",
+    delivered: "Entregue",
+    DELIVERED: "Entregue",
+    delayed: "Entrega atrasada",
+    delivery_attempt_failed: "Tentativa de entrega",
+    returned_to_sender: "Devolvido ao remetente",
+    lost: "Objeto extraviado",
+  };
+  return labels[status] || status;
+}
+
+function deliveryStatusClass(status: string | null): string {
+  const normalized = status?.toLowerCase();
+  const color =
+    normalized === "delivered"
+      ? "bg-green-100 text-green-800"
+      : normalized === "delayed" ||
+          normalized === "delivery_attempt_failed" ||
+          normalized === "lost"
+        ? "bg-red-100 text-red-800"
+        : normalized === "in_transit" ||
+            normalized === "out_for_delivery" ||
+            normalized === "dispatched" ||
+            normalized === "fulfilled"
+          ? "bg-blue-100 text-blue-800"
+          : "bg-gray-100 text-gray-700";
+  return `inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${color}`;
+}
+
+function postSaleStepLabel(stepId: string): string {
+  return POST_SALE_STEP_META[stepId as PostSaleTrigger]?.title || stepId;
+}
+
 function statusClass(status: string): string {
   const color =
     status === "sent" || status === "completed"
@@ -734,6 +942,10 @@ function orderStatusLabel(status: string): string {
     cancelled: "Cancelado",
     refunded: "Reembolsado",
     fulfilled: "Enviado",
+    packed: "Preparado",
+    in_transit: "Em trânsito",
+    out_for_delivery: "Saiu para entrega",
+    delivered: "Entregue",
   };
   return labels[status] || status;
 }

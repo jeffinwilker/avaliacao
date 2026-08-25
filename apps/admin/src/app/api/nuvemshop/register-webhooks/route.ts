@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
-import { registerWebhook } from "@/lib/nuvemshop";
+import {
+  NUVEMSHOP_AUTOMATION_WEBHOOK_EVENTS,
+  registerAutomationWebhooks,
+} from "@/lib/nuvemshop-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-
-const ORDER_EVENTS = [
-  "order/created",
-  "order/paid",
-  "order/fulfilled",
-  "order/cancelled",
-];
 
 export async function POST() {
   const supabase = await createClient();
@@ -36,11 +32,26 @@ export async function POST() {
   }
 
   const webhookUrl = `${appUrl.replace(/\/$/, "")}/api/nuvemshop/webhook`;
-  await Promise.all(
-    ORDER_EVENTS.map((event) =>
-      registerWebhook(store.external_store_id, store.access_token, event, webhookUrl)
-    )
+  const results = await registerAutomationWebhooks({
+    storeId: store.external_store_id,
+    token: store.access_token,
+    webhookUrl,
+  });
+  const failures = results.flatMap((result, index) =>
+    result.status === "rejected"
+      ? [{
+          event: NUVEMSHOP_AUTOMATION_WEBHOOK_EVENTS[index],
+          error: result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+        }]
+      : []
   );
 
-  return NextResponse.json({ ok: true, events: ORDER_EVENTS, url: webhookUrl });
+  return NextResponse.json({
+    ok: failures.length === 0,
+    events: NUVEMSHOP_AUTOMATION_WEBHOOK_EVENTS,
+    failures,
+    url: webhookUrl,
+  }, { status: failures.length ? 400 : 200 });
 }

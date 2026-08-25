@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { parsePostSaleSequence } from "@/lib/automations";
 
 interface PostSaleRoutineBody {
   storeId?: unknown;
@@ -16,6 +17,7 @@ interface PostSaleRoutineBody {
   postPurchaseTemplate?: unknown;
   postPurchaseAttachmentType?: unknown;
   postPurchaseAttachmentUrl?: unknown;
+  postSaleSequence?: unknown;
 }
 
 export async function PUT(req: NextRequest) {
@@ -49,6 +51,16 @@ export async function PUT(req: NextRequest) {
     body?.postPurchaseAttachmentType,
     body?.postPurchaseAttachmentUrl
   );
+  const postSaleSequence = parsePostSaleSequence(body?.postSaleSequence, {
+    enabled: postPurchaseEnabled,
+    delayMinutes: postPurchaseDelayMinutes,
+    messageTemplate: postPurchaseTemplate,
+    attachmentType: postPurchaseAttachment.type,
+    attachmentUrl: postPurchaseAttachment.url,
+  });
+  const confirmationStep = postSaleSequence.find(
+    (step) => step.id === "order_created"
+  )!;
 
   if (!storeId) {
     return NextResponse.json({ error: "Loja não informada" }, { status: 400 });
@@ -63,13 +75,14 @@ export async function PUT(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (
-    !Number.isInteger(postPurchaseDelayMinutes) ||
-    postPurchaseDelayMinutes < 0 ||
-    postPurchaseDelayMinutes > 43_200
-  ) {
+  if (postSaleSequence.some(
+    (step) =>
+      !Number.isInteger(step.delayMinutes) ||
+      step.delayMinutes < 0 ||
+      step.delayMinutes > 43_200
+  )) {
     return NextResponse.json(
-      { error: "A confirmação do pedido deve ser enviada entre 0 minutos e 30 dias" },
+      { error: "As mensagens de pós-venda devem ser enviadas entre 0 minutos e 30 dias" },
       { status: 400 }
     );
   }
@@ -85,13 +98,20 @@ export async function PUT(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (!postPurchaseTemplate || postPurchaseTemplate.length > 4000) {
+  if (postSaleSequence.some(
+    (step) => !step.messageTemplate || step.messageTemplate.length > 4000
+  )) {
     return NextResponse.json(
-      { error: "Escreva a mensagem de confirmação do pedido (até 4000 caracteres)" },
+      { error: "Escreva todas as mensagens de pós-venda (até 4000 caracteres)" },
       { status: 400 }
     );
   }
-  if (!reviewAttachment.valid || !postPurchaseAttachment.valid) {
+  if (
+    !reviewAttachment.valid ||
+    postSaleSequence.some(
+      (step) => step.attachmentType === "library" && !step.attachmentUrl
+    )
+  ) {
     return NextResponse.json(
       { error: "Escolha uma imagem válida da biblioteca ou use a imagem do produto" },
       { status: 400 }
@@ -120,15 +140,23 @@ export async function PUT(req: NextRequest) {
       whatsapp_template: reviewTemplate,
       whatsapp_attachment_type: reviewAttachment.type,
       whatsapp_attachment_url: reviewAttachment.url,
-      post_purchase_enabled: postPurchaseEnabled,
-      post_purchase_delay_minutes: postPurchaseDelayMinutes,
+      post_purchase_enabled: postSaleSequence.some((step) => step.enabled),
+      post_purchase_delay_minutes: confirmationStep.delayMinutes,
       post_purchase_delay_hours: Math.max(
         0,
-        Math.min(720, Math.ceil(postPurchaseDelayMinutes / 60))
+        Math.min(720, Math.ceil(confirmationStep.delayMinutes / 60))
       ),
-      post_purchase_whatsapp_template: postPurchaseTemplate,
-      post_purchase_attachment_type: postPurchaseAttachment.type,
-      post_purchase_attachment_url: postPurchaseAttachment.url,
+      post_purchase_whatsapp_template: confirmationStep.messageTemplate,
+      post_purchase_attachment_type: confirmationStep.attachmentType,
+      post_purchase_attachment_url: confirmationStep.attachmentUrl,
+      post_sale_sequence: postSaleSequence.map((step) => ({
+        id: step.id,
+        delay_minutes: step.delayMinutes,
+        message_template: step.messageTemplate,
+        enabled: step.enabled,
+        attachment_type: step.attachmentType,
+        attachment_url: step.attachmentUrl,
+      })),
     },
     { onConflict: "store_id" }
   );
@@ -137,13 +165,17 @@ export async function PUT(req: NextRequest) {
   }
 
   const cancellations: Array<PromiseLike<unknown>> = [];
-  if (!postPurchaseEnabled) {
+  for (const step of postSaleSequence.filter((item) => !item.enabled)) {
     cancellations.push(
       admin
         .from("automation_messages")
         .update({ status: "cancelled", error_message: "Automação desativada" })
         .eq("store_id", storeId)
         .eq("automation_type", "post_purchase")
+        .in("routine_step_key", [
+          step.id,
+          ...(step.id === "order_created" ? ["default"] : []),
+        ])
         .eq("status", "scheduled")
     );
   }

@@ -53,7 +53,8 @@ O bundle do widget fica em `apps/widget/dist/avaliacoes-widget.js` — esse arqu
 ## Integração na Nuvemshop
 
 Para automações de carrinho abandonado e pós-venda, o aplicativo precisa das
-permissões `read_orders`, `write_orders`, `read_coupons` e `write_coupons`, dos
+permissões `read_orders`, `write_orders`, `read_fulfillment_orders`,
+`read_coupons` e `write_coupons`, dos
 webhooks de pedido registrados e do cron configurado conforme `deploy/README.md`.
 
 As telas de automação separam **Pedidos e envios**, **Mensagens** e **Rotinas**,
@@ -67,9 +68,16 @@ abandonado e inserir o código na mensagem com `{{cupom}}`.
 Ao ativar a rotina ou alterar o tempo de uma etapa, o novo prazo passa a valer
 para carrinhos criados depois da alteração, evitando disparos retroativos em massa.
 Os atrasos podem ser informados em minutos, horas ou dias. Para usar essa versão,
-execute também as migrations `0007_abandoned_cart_routines.sql` e
-`0009_flexible_post_sale_delays.sql`, `0010_automation_attachments.sql` e
-`0011_abandoned_cart_coupons.sql`.
+execute também as migrations `0007_abandoned_cart_routines.sql`,
+`0009_flexible_post_sale_delays.sql`, `0010_automation_attachments.sql`,
+`0011_abandoned_cart_coupons.sql` e `0012_post_sale_tracking.sql`.
+
+O pós-venda também reage aos estados de preparação, despacho e rastreamento
+recebidos pela Nuvemshop. Cada estado pode ter mensagem, atraso e anexo próprios,
+com as variáveis `{{codigo_rastreio}}`, `{{link_rastreio}}` e
+`{{status_entrega}}`. A lista de pedidos mostra o código e a linha do tempo da
+entrega. Os eventos detalhados dependem de a transportadora alimentar o rastreio
+na Nuvemshop.
 
 Cole no tema da loja (Configurações → HTML/CSS → produto.tpl):
 

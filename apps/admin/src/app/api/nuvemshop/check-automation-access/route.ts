@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   checkAbandonedCheckoutAccess,
   checkCouponAccess,
+  checkFulfillmentOrderAccess,
 } from "@/lib/nuvemshop";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -25,8 +26,10 @@ export async function GET() {
 
   let readOrders = true;
   let coupons = true;
+  let fulfillmentOrders = true;
   let ordersError: string | null = null;
   let couponsError: string | null = null;
+  let fulfillmentOrdersError: string | null = null;
 
   try {
     await checkAbandonedCheckoutAccess(store.external_store_id, store.access_token);
@@ -40,12 +43,23 @@ export async function GET() {
     coupons = false;
     couponsError = (error as Error).message;
   }
+  try {
+    await checkFulfillmentOrderAccess(
+      store.external_store_id,
+      store.access_token
+    );
+  } catch (error) {
+    fulfillmentOrders = false;
+    fulfillmentOrdersError = (error as Error).message;
+  }
 
   return NextResponse.json({
-    ok: readOrders && coupons,
+    ok: readOrders && coupons && fulfillmentOrders,
     read_orders: readOrders,
     coupons,
+    fulfillment_orders: fulfillmentOrders,
     orders_error: ordersError,
     coupons_error: couponsError,
+    fulfillment_orders_error: fulfillmentOrdersError,
   });
 }

@@ -248,7 +248,8 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
     checking: boolean;
     orders: boolean;
     coupons: boolean;
-  }>({ checking: true, orders: false, coupons: false });
+    fulfillmentOrders: boolean;
+  }>({ checking: true, orders: false, coupons: false, fulfillmentOrders: false });
 
   useEffect(() => {
     fetch("/api/nuvemshop/check-automation-access")
@@ -258,9 +259,15 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
           checking: false,
           orders: json.read_orders === true,
           coupons: json.coupons === true,
+          fulfillmentOrders: json.fulfillment_orders === true,
         });
       })
-      .catch(() => setAccess({ checking: false, orders: false, coupons: false }));
+      .catch(() => setAccess({
+        checking: false,
+        orders: false,
+        coupons: false,
+        fulfillmentOrders: false,
+      }));
   }, []);
 
   async function register() {
@@ -304,6 +311,23 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
           )}
         </div>
       )}
+      {!access.checking && access.fulfillmentOrders && (
+        <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+          ✓ A permissão <code>read_fulfillment_orders</code> está ativa para acompanhar rastreios.
+        </p>
+      )}
+      {!access.checking && !access.fulfillmentOrders && (
+        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+          <p>
+            Adicione <code>read_fulfillment_orders</code> no aplicativo Nuvemshop e atualize a autorização para receber códigos e mudanças da entrega.
+          </p>
+          {installUrl && (
+            <a href={installUrl} className="inline-block underline font-medium mt-2">
+              Atualizar autorização da loja
+            </a>
+          )}
+        </div>
+      )}
       {!access.checking && access.coupons && (
         <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
           ✓ O acesso aos cupons está ativo. Para criar os códigos automáticos, mantenha também <code>write_coupons</code> habilitada no aplicativo.
@@ -325,7 +349,9 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
         <button
           type="button"
           onClick={register}
-          disabled={state === "saving" || !access.orders}
+          disabled={
+            state === "saving" || !access.orders || !access.fulfillmentOrders
+          }
           className="bg-brand-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
         >
           {state === "saving" ? "Registrando..." : "Registrar webhooks"}
