@@ -228,7 +228,7 @@ export async function syncAbandonedCarts(
           .update({ status: "cancelled", error_message: null })
           .eq("store_id", store.id)
           .eq("automation_type", "abandoned_cart")
-          .eq("status", "scheduled")
+          .in("status", ["scheduled", "processing"])
           .in("external_reference", completedIds.slice(i, i + 200))
           .select("id");
         result.cancelled += cancelled?.length ?? 0;
@@ -381,7 +381,7 @@ export async function cancelMessagesForOrder(
     .eq("store_id", input.storeId)
     .eq("automation_type", "post_purchase")
     .eq("external_reference", input.externalOrderId)
-    .eq("status", "scheduled");
+    .in("status", ["scheduled", "processing"]);
 
   if (input.sourceToken) {
     await admin
@@ -390,7 +390,7 @@ export async function cancelMessagesForOrder(
       .eq("store_id", input.storeId)
       .eq("automation_type", "abandoned_cart")
       .eq("source_token", input.sourceToken)
-      .eq("status", "scheduled");
+      .in("status", ["scheduled", "processing"]);
   }
 }
 
@@ -407,7 +407,7 @@ export async function cancelAbandonedCartForOrder(
       .eq("store_id", storeId)
       .eq("automation_type", "abandoned_cart")
       .eq("source_token", sourceToken)
-      .eq("status", "scheduled"),
+      .in("status", ["scheduled", "processing"]),
     admin
       .from("abandoned_carts")
       .update({ status: "recovered", completed_at: new Date().toISOString() })
@@ -502,6 +502,25 @@ export async function sendScheduledAutomationMessages(
       continue;
     }
 
+    if (
+      type === "abandoned_cart" &&
+      !(await abandonedCartStillOpen(
+        admin,
+        job.store_id,
+        job.external_reference
+      ))
+    ) {
+      await admin
+        .from("automation_messages")
+        .update({
+          status: "cancelled",
+          error_message: "Pedido já foi fechado",
+        })
+        .eq("id", job.id);
+      result.cancelled++;
+      continue;
+    }
+
     const template =
       type === "abandoned_cart"
         ? abandonedStep?.message_template ||
@@ -569,6 +588,27 @@ export async function sendScheduledAutomationMessages(
           : "",
       });
 
+      // Repete a condição imediatamente antes do envio para cobrir o caso de o
+      // checkout ser finalizado enquanto o cupom e a mensagem eram preparados.
+      if (
+        type === "abandoned_cart" &&
+        !(await abandonedCartStillOpen(
+          admin,
+          job.store_id,
+          job.external_reference
+        ))
+      ) {
+        await admin
+          .from("automation_messages")
+          .update({
+            status: "cancelled",
+            error_message: "Pedido fechado antes do envio",
+          })
+          .eq("id", job.id);
+        result.cancelled++;
+        continue;
+      }
+
       await sendWhatsApp({
         phone: job.customer_phone,
         message,
@@ -600,6 +640,21 @@ export async function sendScheduledAutomationMessages(
   }
 
   return result;
+}
+
+async function abandonedCartStillOpen(
+  admin: AdminClient,
+  storeId: string,
+  externalReference: string
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from("abandoned_carts")
+    .select("status")
+    .eq("store_id", storeId)
+    .eq("external_checkout_id", externalReference)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.status === "abandoned";
 }
 
 export function parsePostSaleSequence(

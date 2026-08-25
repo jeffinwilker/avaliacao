@@ -476,6 +476,26 @@ function AbandonedFlowBuilder({
               </div>
 
               <FlowConnector />
+              <div className="w-full max-w-xl rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-800">
+                    <FlowConditionIcon />
+                  </span>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                      Condição
+                    </div>
+                    <div className="mt-0.5 font-semibold text-zinc-950">
+                      Pedido ainda não foi fechado
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-zinc-600">
+                      Se o checkout já virou pedido, esta e as próximas mensagens são canceladas.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <FlowConnector />
               <div className={`w-full max-w-xl rounded-2xl border-2 bg-white shadow-sm ${step.enabled ? "border-blue-400" : "border-zinc-300 opacity-70"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-100 p-4">
                   <div className="flex items-center gap-3">
@@ -609,6 +629,15 @@ function FlowClockIcon() {
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+function FlowConditionIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path d="M8.5 3.5h7l5 8.5-5 8.5h-7L3.5 12l5-8.5Z" />
+      <path d="m9 12 2 2 4-4" />
     </svg>
   );
 }

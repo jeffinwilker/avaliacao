@@ -65,6 +65,8 @@ mostra o fluxo visualmente como gatilho, espera e mensagem. Cada mensagem pode s
 sem anexo, com a imagem do produto ou com uma imagem fixa enviada para a biblioteca.
 Uma etapa também pode criar um cupom exclusivo de uso único, aplicá-lo ao checkout
 abandonado e inserir o código na mensagem com `{{cupom}}`.
+Antes de cada mensagem, o fluxo confirma que o checkout ainda não virou pedido;
+se ele já foi fechado, a etapa atual e as próximas são canceladas.
 Ao ativar a rotina ou alterar o tempo de uma etapa, o novo prazo passa a valer
 para carrinhos criados depois da alteração, evitando disparos retroativos em massa.
 Os atrasos podem ser informados em minutos, horas ou dias. Para usar essa versão,
