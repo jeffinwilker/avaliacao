@@ -92,6 +92,13 @@ export function AbandonedCartDashboard({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [expandedCart, setExpandedCart] = useState<string | null>(null);
+  const [manualCart, setManualCart] = useState<AbandonedCartView | null>(null);
+  const [manualStepId, setManualStepId] = useState("");
+  const [manualSending, setManualSending] = useState(false);
+  const [manualFeedback, setManualFeedback] = useState<{
+    type: "ok" | "error";
+    text: string;
+  } | null>(null);
   const showRoutine = mode === "all" || mode === "routine";
   const showMessages = mode === "all" || mode === "messages";
   const showOrders = mode === "all" || mode === "orders";
@@ -128,6 +135,58 @@ export function AbandonedCartDashboard({
   function updateStep(id: string, patch: Partial<AbandonedCartMessageStep>) {
     setSteps((current) => current.map((step) => step.id === id ? { ...step, ...patch } : step));
     setFeedback(null);
+  }
+
+  function openManualSend(cart: AbandonedCartView) {
+    const failedStep = steps.find((step) =>
+      cart.messages.some(
+        (message) =>
+          message.routineStepKey === step.id && message.status === "failed"
+      )
+    );
+    const unsentStep = steps.find(
+      (step) =>
+        !cart.messages.some(
+          (message) =>
+            message.routineStepKey === step.id && message.status === "sent"
+        )
+    );
+    setManualCart(cart);
+    setManualStepId((failedStep || unsentStep || steps[0])?.id || "");
+    setManualFeedback(null);
+  }
+
+  async function sendManualMessage() {
+    if (!manualCart || !manualStepId) return;
+    setManualSending(true);
+    setManualFeedback(null);
+    const res = await fetch(
+      "/api/automations/abandoned-cart-manual-send",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          storeId,
+          externalCheckoutId: manualCart.externalCheckoutId,
+          stepId: manualStepId,
+        }),
+      }
+    );
+    const json = await res.json().catch(() => ({}));
+    setManualSending(false);
+    if (!res.ok) {
+      setManualFeedback({
+        type: "error",
+        text: json.error || "Não foi possível enviar a mensagem",
+      });
+      router.refresh();
+      return;
+    }
+    setManualFeedback({
+      type: "ok",
+      text: "Mensagem enviada agora pelo WhatsApp.",
+    });
+    router.refresh();
   }
 
   function addStep() {
@@ -399,6 +458,7 @@ export function AbandonedCartDashboard({
                       displayStatus={displayStatus}
                       expanded={expanded}
                       onToggle={() => setExpandedCart(expanded ? null : cart.id)}
+                      onManualSend={() => openManualSend(cart)}
                     />
                   );
                 })}
@@ -413,6 +473,24 @@ export function AbandonedCartDashboard({
           </div>
         )}
       </section>}
+
+      {manualCart && (
+        <ManualSendDialog
+          cart={manualCart}
+          steps={steps}
+          storeName={storeName}
+          selectedStepId={manualStepId}
+          sending={manualSending}
+          feedback={manualFeedback}
+          onSelectStep={setManualStepId}
+          onSend={sendManualMessage}
+          onClose={() => {
+            if (manualSending) return;
+            setManualCart(null);
+            setManualFeedback(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -784,6 +862,7 @@ function CartRows({
   displayStatus,
   expanded,
   onToggle,
+  onManualSend,
 }: {
   cart: AbandonedCartView;
   steps: AbandonedCartMessageStep[];
@@ -791,6 +870,7 @@ function CartRows({
   displayStatus: ReturnType<typeof cartDisplayStatus>;
   expanded: boolean;
   onToggle: () => void;
+  onManualSend: () => void;
 }) {
   return (
     <>
@@ -841,7 +921,18 @@ function CartRows({
         </td>
         <td className="px-5 py-4 min-w-[300px]">
           <MessageSequenceStatus cart={cart} steps={steps} storeName={storeName} />
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {cart.status === "abandoned" && (
+              <button
+                type="button"
+                onClick={onManualSend}
+                disabled={!cart.customerPhone}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 shadow-sm transition hover:border-zinc-500 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <SendIcon />
+                Enviar manualmente
+              </button>
+            )}
             <button type="button" onClick={onToggle} className="text-xs font-medium text-brand-900 underline">
               {expanded ? "Ocultar detalhes" : "Ver detalhes"}
             </button>
@@ -897,6 +988,177 @@ function CartRows({
   );
 }
 
+function ManualSendDialog({
+  cart,
+  steps,
+  storeName,
+  selectedStepId,
+  sending,
+  feedback,
+  onSelectStep,
+  onSend,
+  onClose,
+}: {
+  cart: AbandonedCartView;
+  steps: AbandonedCartMessageStep[];
+  storeName: string;
+  selectedStepId: string;
+  sending: boolean;
+  feedback: { type: "ok" | "error"; text: string } | null;
+  onSelectStep: (stepId: string) => void;
+  onSend: () => void;
+  onClose: () => void;
+}) {
+  const selectedStep =
+    steps.find((step) => step.id === selectedStepId) || steps[0] || null;
+  const selectedDelivery = selectedStep
+    ? cart.messages.find(
+        (message) => message.routineStepKey === selectedStep.id
+      ) || null
+    : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Enviar mensagem manualmente"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <div className="max-h-[calc(100vh-32px)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-zinc-200 px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-950">
+              Enviar mensagem manualmente
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              {cart.customerName} · carrinho #{cart.externalCheckoutId}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="grid h-9 w-9 place-items-center rounded-lg text-xl text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-5 p-5">
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
+            O envio acontece agora e também funciona nos carrinhos antigos. Antes
+            de enviar, o sistema confirma novamente que o pedido continua aberto.
+          </div>
+
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Escolha a mensagem
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {steps.map((step, index) => {
+                const delivery =
+                  cart.messages.find(
+                    (message) => message.routineStepKey === step.id
+                  ) || null;
+                const status = stepDeliveryStatus(step, delivery, cart);
+                const visual = sequenceStatusVisual(status);
+                const selected = step.id === selectedStep?.id;
+                return (
+                  <button
+                    key={step.id}
+                    type="button"
+                    onClick={() => onSelectStep(step.id)}
+                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                      selected
+                        ? "border-zinc-900 bg-zinc-50 ring-1 ring-zinc-900"
+                        : "border-zinc-200 hover:border-zinc-400"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-zinc-900">
+                        Mensagem {index + 1}
+                      </span>
+                      <span className={`text-xs font-medium ${visual.textClass}`}>
+                        {visual.label}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {formatDelay(step.delayMinutes)} após o carrinho
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {selectedStep && (
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Prévia
+                </div>
+                {selectedStep.couponEnabled && (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
+                    O cupom será aplicado no envio
+                  </span>
+                )}
+              </div>
+              <div className="rounded-xl bg-[#efeae2] p-4">
+                <div className="max-h-72 overflow-y-auto rounded-xl rounded-tr-sm bg-[#d9fdd3] px-4 py-3 text-sm leading-6 text-zinc-800 shadow-sm">
+                  <div className="whitespace-pre-wrap break-words">
+                    {renderCartMessage(
+                      selectedStep,
+                      cart,
+                      storeName,
+                      selectedDelivery?.couponCode
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {feedback && (
+            <div
+              className={`rounded-xl border px-4 py-3 text-sm ${
+                feedback.type === "ok"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-red-200 bg-red-50 text-red-700"
+              }`}
+            >
+              {feedback.text}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-zinc-200 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+          >
+            Fechar
+          </button>
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={sending || !selectedStep}
+            className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <SendIcon />
+            {sending ? "Enviando..." : "Enviar agora"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface MessagePreviewState {
   step: AbandonedCartMessageStep;
   stepNumber: number;
@@ -904,8 +1166,6 @@ interface MessagePreviewState {
   status: string;
   content: string;
   attachmentUrl: string | null;
-  top: number;
-  left: number;
 }
 
 function MessageSequenceStatus({
@@ -923,24 +1183,11 @@ function MessageSequenceStatus({
   );
 
   function openPreview(
-    target: HTMLButtonElement,
     step: AbandonedCartMessageStep,
     stepNumber: number,
     delivery: CartMessageView | null,
     status: string
   ) {
-    const rect = target.getBoundingClientRect();
-    const panelWidth = 360;
-    const panelHeight = 430;
-    const fitsOnRight = rect.right + panelWidth + 20 <= window.innerWidth;
-    const left = fitsOnRight
-      ? rect.right + 10
-      : Math.max(12, rect.left - panelWidth - 10);
-    const top = Math.max(
-      12,
-      Math.min(rect.top - 72, window.innerHeight - panelHeight - 12)
-    );
-
     setPreview({
       step,
       stepNumber,
@@ -954,98 +1201,110 @@ function MessageSequenceStatus({
           : step.attachmentType === "product_image"
             ? cart.products.find((product) => product.imageUrl)?.imageUrl || null
             : null),
-      top,
-      left,
     });
   }
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-start gap-2">
+      <div className="mb-3 grid grid-cols-2 gap-2">
         {steps.map((step, index) => {
           const delivery = messagesByStep.get(step.id) ?? null;
           const status = stepDeliveryStatus(step, delivery, cart);
           const visual = sequenceStatusVisual(status);
           return (
-            <div key={step.id} className="flex w-14 flex-col items-center gap-1">
-              <button
-                type="button"
-                onMouseEnter={(event) =>
-                  openPreview(event.currentTarget, step, index + 1, delivery, status)
-                }
-                onMouseLeave={() => setPreview(null)}
-                onFocus={(event) =>
-                  openPreview(event.currentTarget, step, index + 1, delivery, status)
-                }
-                onBlur={() => setPreview(null)}
-                className={`relative grid h-10 w-10 place-items-center rounded-full border-2 bg-white transition hover:-translate-y-0.5 hover:shadow-md ${visual.iconClass}`}
-                aria-label={`${index + 1}ª mensagem: ${visual.label}. Passe o mouse para visualizar.`}
-              >
-                <MessageCircleIcon />
-                <span className={`absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[9px] font-bold ${visual.badgeClass}`}>
-                  {index + 1}
-                </span>
-              </button>
-              <span className={`max-w-14 truncate text-center text-[10px] font-medium ${visual.textClass}`}>
-                {visual.label}
+            <button
+              key={step.id}
+              type="button"
+              onClick={() => openPreview(step, index + 1, delivery, status)}
+              className="flex min-w-0 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-2.5 py-2 text-left shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50"
+              aria-label={`${index + 1}ª mensagem: ${visual.label}. Clique para ver os detalhes.`}
+            >
+              <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border bg-white ${visual.iconClass}`}>
+                <span className="scale-75"><MessageCircleIcon /></span>
               </span>
-            </div>
+              <span className="min-w-0">
+                <span className="block truncate text-[11px] font-semibold text-zinc-800">
+                  Mensagem {index + 1}
+                </span>
+                <span className={`block truncate text-[11px] font-medium ${visual.textClass}`}>
+                  {visual.label}
+                </span>
+              </span>
+            </button>
           );
         })}
       </div>
 
       {preview && (
         <div
-          className="pointer-events-none fixed z-[90] w-[360px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl"
-          style={{ top: preview.top, left: preview.left }}
-          role="tooltip"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Detalhes da mensagem ${preview.stepNumber}`}
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setPreview(null);
+          }}
         >
-          <div className="flex items-center justify-between gap-3 bg-zinc-900 px-4 py-3 text-white">
-            <div>
-              <div className="text-sm font-semibold">
-                [{preview.stepNumber}] Carrinho abandonado
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-3 bg-zinc-900 px-5 py-4 text-white">
+              <div>
+                <div className="text-sm font-semibold">
+                  Mensagem {preview.stepNumber} · Carrinho abandonado
+                </div>
+                <div className="mt-0.5 text-xs text-zinc-300">
+                  {formatDelay(preview.step.delayMinutes)} após o carrinho
+                </div>
               </div>
-              <div className="mt-0.5 text-[11px] text-zinc-300">
-                {formatDelay(preview.step.delayMinutes)} após o carrinho
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium">
+                  {messageStatusLabels[preview.status] || preview.status}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreview(null)}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-xl text-white/80 hover:bg-white/10 hover:text-white"
+                  aria-label="Fechar detalhes"
+                >
+                  ×
+                </button>
               </div>
             </div>
-            <span className="rounded-full bg-white/15 px-2 py-1 text-[11px] font-medium">
-              {messageStatusLabels[preview.status] || preview.status}
-            </span>
-          </div>
 
-          <div className="max-h-[350px] overflow-hidden bg-[#efeae2] p-4">
-            <div className="max-h-[270px] overflow-y-auto rounded-xl rounded-tr-sm bg-[#d9fdd3] p-1.5 text-sm leading-6 text-zinc-800 shadow-sm">
-              {preview.attachmentUrl && (
-                <img
-                  src={preview.attachmentUrl}
-                  alt="Anexo da mensagem"
-                  className="mb-1 max-h-40 w-full rounded-lg object-cover"
-                />
-              )}
-              <div className="whitespace-pre-wrap break-words px-2.5 py-2">
-                {preview.content}
+            <div className="bg-[#efeae2] p-5">
+              <div className="max-h-[52vh] overflow-y-auto rounded-xl rounded-tr-sm bg-[#d9fdd3] p-1.5 text-sm leading-6 text-zinc-800 shadow-sm">
+                {preview.attachmentUrl && (
+                  <img
+                    src={preview.attachmentUrl}
+                    alt="Anexo da mensagem"
+                    className="mb-1 max-h-56 w-full rounded-lg object-cover"
+                  />
+                )}
+                <div className="whitespace-pre-wrap break-words px-3 py-2.5">
+                  {preview.content}
+                </div>
               </div>
             </div>
-            <div className="mt-3 text-xs text-zinc-600">
-              {preview.delivery ? (
-                <>
-                  {preview.delivery.sentAt ? "Enviada em " : "Programada para "}
-                  <strong>
-                    {formatDateTime(
-                      preview.delivery.sentAt || preview.delivery.scheduledFor
-                    )}
-                  </strong>
-                </>
-              ) : (
-                "Esta etapa ainda não gerou um envio para este carrinho."
+            <div className="border-t border-zinc-200 px-5 py-4 text-sm text-zinc-600">
+              <div>
+                {preview.delivery ? (
+                  <>
+                    {preview.delivery.sentAt ? "Enviada em " : "Programada para "}
+                    <strong className="text-zinc-900">
+                      {formatDateTime(
+                        preview.delivery.sentAt || preview.delivery.scheduledFor
+                      )}
+                    </strong>
+                  </>
+                ) : (
+                  "Esta mensagem ainda não foi programada para este carrinho."
+                )}
+              </div>
+              {preview.delivery?.errorMessage && (
+                <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {preview.delivery.errorMessage}
+                </div>
               )}
             </div>
-            {preview.delivery?.errorMessage && (
-              <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
-                {preview.delivery.errorMessage}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -1068,6 +1327,25 @@ function MessageCircleIcon() {
     >
       <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.2 9.2 0 0 1-3.8-.9L3 20.5l1.5-4.8A8.4 8.4 0 1 1 21 11.5Z" />
       <path d="M8.2 11.7h.01M12 11.7h.01M15.8 11.7h.01" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m22 2-7 20-4-9-9-4Z" />
+      <path d="M22 2 11 13" />
     </svg>
   );
 }

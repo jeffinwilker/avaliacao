@@ -99,6 +99,13 @@ export interface AutomationSendResult {
   cancelled: number;
 }
 
+export interface ManualAbandonedCartSendResult {
+  messageId: string;
+  status: "sent";
+  sentAt: string;
+  couponCode: string | null;
+}
+
 export async function syncAbandonedCarts(
   admin: AdminClient
 ): Promise<AbandonedCartSyncResult> {
@@ -655,6 +662,187 @@ async function abandonedCartStillOpen(
     .maybeSingle();
   if (error) throw error;
   return data?.status === "abandoned";
+}
+
+/**
+ * Envia uma etapa da rotina imediatamente, sem aplicar o corte active_since.
+ * Assim o lojista pode recuperar carrinhos antigos e repetir uma tentativa que
+ * falhou, mantendo o resultado na mesma linha do tempo da automação.
+ */
+export async function sendManualAbandonedCartMessage(
+  admin: AdminClient,
+  input: { storeId: string; externalCheckoutId: string; stepId: string }
+): Promise<ManualAbandonedCartSendResult> {
+  const [{ data: store, error: storeError }, { data: config, error: configError }, { data: cart, error: cartError }] =
+    await Promise.all([
+      admin
+        .from("stores")
+        .select("id, name, external_store_id, access_token")
+        .eq("id", input.storeId)
+        .maybeSingle(),
+      admin
+        .from("store_settings")
+        .select(
+          `store_id, abandoned_cart_delay_hours, abandoned_cart_whatsapp_template,
+           abandoned_cart_sequence, whatsapp_instance`
+        )
+        .eq("store_id", input.storeId)
+        .maybeSingle(),
+      admin
+        .from("abandoned_carts")
+        .select(
+          `external_checkout_id, source_token, customer_name, customer_phone,
+           checkout_url, products, products_summary, status`
+        )
+        .eq("store_id", input.storeId)
+        .eq("external_checkout_id", input.externalCheckoutId)
+        .maybeSingle(),
+    ]);
+
+  if (storeError) throw storeError;
+  if (configError) throw configError;
+  if (cartError) throw cartError;
+  if (!store || !config || !cart) throw new Error("Carrinho não encontrado");
+  if (cart.status !== "abandoned") {
+    throw new Error("Este carrinho já virou pedido e não pode receber a mensagem");
+  }
+  if (!cart.customer_phone) {
+    throw new Error("O cliente não informou um número de WhatsApp");
+  }
+  if (!cart.checkout_url) {
+    throw new Error("O link deste carrinho não está mais disponível");
+  }
+
+  const steps = parseAbandonedCartSequence(
+    config.abandoned_cart_sequence,
+    config.abandoned_cart_delay_hours,
+    config.abandoned_cart_whatsapp_template
+  );
+  const stepIndex = steps.findIndex((step) => step.id === input.stepId);
+  const step = steps[stepIndex];
+  if (!step) throw new Error("Mensagem da rotina não encontrada");
+
+  const attachmentUrl = resolveCartAttachmentUrl(
+    step,
+    Array.isArray(cart.products) ? cart.products : []
+  );
+  const startedAt = new Date().toISOString();
+  const { data: job, error: jobError } = await admin
+    .from("automation_messages")
+    .upsert(
+      {
+        store_id: input.storeId,
+        automation_type: "abandoned_cart",
+        external_reference: cart.external_checkout_id,
+        reference_label: cart.external_checkout_id,
+        source_token: cart.source_token || null,
+        customer_name: cart.customer_name || "Cliente",
+        customer_phone: cart.customer_phone,
+        products_summary: cart.products_summary || "seus produtos",
+        link: cart.checkout_url,
+        routine_step_key: step.id,
+        sequence_step: stepIndex + 1,
+        status: "processing",
+        scheduled_for: startedAt,
+        sent_at: null,
+        attempts: 0,
+        error_message: null,
+        attachment_type: attachmentUrl ? "image" : "none",
+        attachment_url: attachmentUrl,
+      },
+      {
+        onConflict:
+          "store_id,automation_type,external_reference,routine_step_key",
+      }
+    )
+    .select("id, coupon_code, coupon_applied_at")
+    .single();
+
+  if (jobError) throw jobError;
+
+  try {
+    let couponCode = step.coupon_enabled ? job.coupon_code || "" : "";
+    if (step.coupon_enabled && (!couponCode || !job.coupon_applied_at)) {
+      if (!store.access_token) {
+        throw new Error("Conexão com a Nuvemshop ausente para criar o cupom");
+      }
+      const coupon = await ensureAbandonedCheckoutCoupon(
+        store.external_store_id,
+        store.access_token,
+        cart.external_checkout_id,
+        {
+          code: automaticCouponCode(job.id),
+          type: step.coupon_type,
+          value: step.coupon_value,
+          validHours: step.coupon_valid_hours,
+          minPrice: step.coupon_min_price,
+        }
+      );
+      couponCode = coupon.code;
+      await admin
+        .from("automation_messages")
+        .update({
+          coupon_id: coupon.id,
+          coupon_code: coupon.code,
+          coupon_applied_at: new Date().toISOString(),
+        })
+        .eq("id", job.id);
+    }
+
+    const couponTemplate =
+      couponCode && !step.message_template.includes("{{cupom}}")
+        ? `${step.message_template}\n\nUse o cupom *{{cupom}}* no seu carrinho.`
+        : step.message_template;
+    const message = replaceTemplate(couponTemplate, {
+      "{{nome}}": firstName(cart.customer_name || "Cliente"),
+      "{{produtos}}": cart.products_summary || "seus produtos",
+      "{{link}}": cart.checkout_url,
+      "{{loja}}": store.name,
+      "{{pedido}}": cart.external_checkout_id,
+      "{{cupom}}": couponCode,
+      "{{desconto}}": couponDiscountLabel(step),
+    });
+
+    if (!(await abandonedCartStillOpen(admin, input.storeId, input.externalCheckoutId))) {
+      throw new Error("O pedido foi fechado antes do envio");
+    }
+
+    await sendWhatsApp({
+      phone: cart.customer_phone,
+      message,
+      instance: config.whatsapp_instance,
+      mediaUrl: attachmentUrl,
+    });
+    const sentAt = new Date().toISOString();
+    const { error: updateError } = await admin
+      .from("automation_messages")
+      .update({
+        status: "sent",
+        sent_at: sentAt,
+        attempts: 1,
+        error_message: null,
+      })
+      .eq("id", job.id);
+    if (updateError) throw updateError;
+
+    return {
+      messageId: job.id,
+      status: "sent",
+      sentAt,
+      couponCode: couponCode || null,
+    };
+  } catch (error) {
+    await admin
+      .from("automation_messages")
+      .update({
+        status: "failed",
+        sent_at: null,
+        attempts: 1,
+        error_message: (error as Error).message.slice(0, 1000),
+      })
+      .eq("id", job.id);
+    throw error;
+  }
 }
 
 export function parsePostSaleSequence(
