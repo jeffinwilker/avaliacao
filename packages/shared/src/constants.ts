@@ -9,6 +9,7 @@ export const MIN_RATING = 1;
 export const STORAGE_BUCKET = "review-media";
 export const KIT_STORAGE_BUCKET = "kit-media";
 export const AUTOMATION_STORAGE_BUCKET = "automation-media";
+export const PRODUCT_REELS_STORAGE_BUCKET = "product-reels";
 
 export const DEFAULT_EMAIL_TEMPLATE = `Olá {{nome}},
 

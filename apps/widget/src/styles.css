@@ -426,6 +426,214 @@
 .av-media-add:hover { border-color: var(--av-brand); color: var(--av-brand); }
 .av-media-add input { display: none; }
 
+/* ---------- Reels / stories de produto ---------- */
+.av-reels-wrap {
+  margin: 14px 0;
+}
+.av-reels-label {
+  margin-bottom: 10px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+}
+.av-reels-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  -webkit-overflow-scrolling: touch;
+}
+.av-reel-chip {
+  width: 74px;
+  flex: 0 0 74px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: center;
+  font-family: inherit;
+}
+.av-reel-ring {
+  display: grid;
+  width: 66px;
+  height: 66px;
+  place-items: center;
+  margin: 0 auto 6px;
+  border-radius: 50%;
+  background: conic-gradient(var(--av-brand), #ef4444, #f59e0b, var(--av-brand));
+  padding: 3px;
+}
+.av-reel-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #111827;
+}
+.av-reel-thumb img,
+.av-reel-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.av-reel-play {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: rgba(17, 24, 39, 0.82);
+}
+.av-reel-play::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  border-left: 6px solid #fff;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+.av-reel-chip-title {
+  display: block;
+  overflow: hidden;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.av-reel-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.82);
+}
+.av-reel-player-shell {
+  position: relative;
+  width: min(420px, 100%);
+  max-height: calc(100vh - 36px);
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #000;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+}
+.av-reel-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.av-reel-progress {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  right: 54px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+.av-reel-progress span {
+  height: 3px;
+  flex: 1;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+}
+.av-reel-progress span.active {
+  background: #fff;
+}
+.av-reel-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 3;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.46);
+  color: #fff;
+  cursor: pointer;
+  font-size: 28px;
+  line-height: 1;
+}
+.av-reel-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  width: 38px;
+  height: 52px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.38);
+  color: #fff;
+  cursor: pointer;
+  font-size: 36px;
+  line-height: 1;
+}
+.av-reel-nav-prev { left: 8px; }
+.av-reel-nav-next { right: 8px; }
+.av-reel-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 56px 14px 14px;
+  color: #fff;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.78), transparent);
+}
+.av-reel-caption > div {
+  min-width: 0;
+  flex: 1;
+}
+.av-reel-caption-title {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.av-reel-caption-product {
+  overflow: hidden;
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.av-reel-product-link {
+  flex: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 11px;
+  text-decoration: none;
+}
+.av-reel-count {
+  flex: none;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  padding-bottom: 8px;
+}
+
 /* ---------- States ---------- */
 .av-loading, .av-empty {
   text-align: center;
@@ -470,4 +678,10 @@
 @media (max-width: 480px) {
   .av-summary-avg { font-size: 26px; }
   .av-btn { width: 100%; }
+  .av-reel-modal { padding: 0; }
+  .av-reel-player-shell {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
 }

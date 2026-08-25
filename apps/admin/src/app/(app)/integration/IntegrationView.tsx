@@ -184,7 +184,8 @@ function Connected({
   store: Store;
   installUrl: string | null;
 }) {
-  const scriptTag = `<div data-avaliacoes data-product-id="{{ product.id }}"></div>
+  const scriptTag = `<div data-avaliacoes-reels data-product-id="{{ product.id }}"></div>
+<div data-avaliacoes data-product-id="{{ product.id }}"></div>
 <script
   src="${typeof window !== "undefined" ? window.location.origin : ""}/widget/avaliacoes-widget.js"
   data-store-key="${store.api_key}"

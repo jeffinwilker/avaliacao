@@ -80,7 +80,8 @@ export function PreviewClient({
           Depois do deploy, cole isto no <em>produto.tpl</em> da sua Nuvemshop:
         </p>
         <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs mt-2 overflow-x-auto">
-{`<div data-avaliacoes data-product-id="{{ product.id }}"></div>
+{`<div data-avaliacoes-reels data-product-id="{{ product.id }}"></div>
+<div data-avaliacoes data-product-id="{{ product.id }}"></div>
 <script
   src="https://SEU_DOMINIO/widget/avaliacoes-widget.js"
   data-store-key="${storeKey}"

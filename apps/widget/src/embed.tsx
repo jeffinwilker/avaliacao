@@ -4,7 +4,13 @@ import { Widget } from "./Widget";
 import { WidgetSummary } from "./WidgetSummary";
 import { WidgetKit } from "./WidgetKit";
 import { WidgetKitContents } from "./WidgetKitContents";
-import { fetchStatsBatch, fetchKitsBatch, fetchKitContents } from "./lib/api";
+import { WidgetReels } from "./WidgetReels";
+import {
+  fetchStatsBatch,
+  fetchKitsBatch,
+  fetchKitContents,
+  fetchReelsBatch,
+} from "./lib/api";
 import css from "./styles.css?inline";
 
 // ----------------------------------------------------------------------------
@@ -88,9 +94,48 @@ function mountAll() {
 
   // Cards de kit: [data-avaliacoes-kit]
   mountKits(storeKey);
+  mountReels(storeKey);
 
   // Lista "Produtos do kit" na página do kit: [data-avaliacoes-kit-items]
   mountKitContents(storeKey);
+}
+
+async function mountReels(storeKey: string) {
+  const containers = document.querySelectorAll<HTMLElement>(
+    "[data-avaliacoes-reels]"
+  );
+  if (containers.length === 0) return;
+
+  const toMount: { el: HTMLElement; productId: string }[] = [];
+  const idSet = new Set<string>();
+  containers.forEach((el) => {
+    if (el.dataset.avMounted === "1") return;
+    const productId =
+      el.dataset.productId ?? el.getAttribute("data-product-id") ?? "";
+    if (!productId) {
+      console.warn("[avaliacoes-reels] container sem data-product-id", el);
+      return;
+    }
+    toMount.push({ el, productId });
+    idSet.add(productId);
+  });
+  if (toMount.length === 0) return;
+
+  const reelsMap = await fetchReelsBatch(storeKey, Array.from(idSet));
+
+  for (const { el, productId } of toMount) {
+    el.dataset.avMounted = "1";
+    const reels = reelsMap[productId] ?? [];
+    if (reels.length === 0) continue;
+    const brandColor = el.dataset.brandColor;
+    const title = el.dataset.title;
+
+    ReactDOM.createRoot(el).render(
+      <React.StrictMode>
+        <WidgetReels reels={reels} brandColor={brandColor} title={title} />
+      </React.StrictMode>
+    );
+  }
 }
 
 async function mountKitContents(storeKey: string) {

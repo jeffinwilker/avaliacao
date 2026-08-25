@@ -120,6 +120,11 @@ cd apps/admin && npx tsc --noEmit
   usando produto e cor reais, mas com submissão desativada.
 - **Mini-summary** (`data-avaliacoes-summary`): estrelas + "4.5 · N avaliações" com
   scroll até a lista. Usa **batch** (`/api/widget/stats`) pra vitrines/categorias.
+- **Reels/stories de produto** (`/reels` + `data-avaliacoes-reels`): vídeos
+  verticais por produto, com bolinhas estilo destaque de stories e modal 9:16 no
+  widget. O banco guarda metadados em `product_reels`; os arquivos vão para o
+  Cloudflare R2 quando `R2_*` estiver configurado, com fallback para o bucket
+  Supabase `product-reels` em teste.
 - **Painel admin**: dashboard, lista com filtros (pendente/aprovada/reprovada),
   detalhe com aprovar/reprovar/responder, configurações (templates, auto-publicar,
   cor da marca), **importação XLSX/CSV** com matching de produto por similaridade
@@ -208,10 +213,12 @@ Rode as migrations **em ordem** no SQL Editor (idempotentes, usam `if not exists
 | `0012_post_sale_tracking.sql` | sequência de pós-venda por evento, código/link de rastreio, estado atual e histórico da entrega |
 | `0013_review_after_delivery.sql` | transfere o gatilho da avaliação para a entrega confirmada e define atraso padrão de um dia |
 | `0014_store_members.sql` | vínculo entre contas do Supabase Auth e a loja, com papéis owner/member |
+| `0015_product_reels.sql` | tabela `product_reels` e bucket público `product-reels` para reels/stories de produto |
 
 **Storage buckets (públicos):** `review-media` (fotos/vídeos de reviews),
 `kit-media` (imagens de kit enviadas pelo lojista) e `automation-media`
-(imagens fixas usadas nas mensagens automáticas).
+(imagens fixas usadas nas mensagens automáticas). Para reels, prefira Cloudflare
+R2; o bucket Supabase `product-reels` fica como fallback/dev.
 
 **Multi-tenant:** as tabelas têm `store_id`, mas hoje só há **1 loja**. O admin usa o
 **service_role** (ignora RLS). O widget lê via endpoints públicos validados por `api_key`.
@@ -259,6 +266,10 @@ WHATSAPP_PROVIDER=evolution / WHATSAPP_API_URL / WHATSAPP_API_KEY / WHATSAPP_INS
 
 # Cron (SEGREDO — gerar com: openssl rand -hex 32)
 CRON_SECRET
+
+# Reels em Cloudflare R2 (recomendado para vídeo; SEGREDOS nos access keys)
+R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET
+R2_PUBLIC_URL=https://media.seudominio.com
 ```
 
 `apps/widget/.env.local`:
@@ -283,6 +294,9 @@ Um único `<script>` cuida de todos os blocos. Cole os `<div>` onde quiser:
 ```html
 <!-- Avaliações (lista completa) -->
 <div data-avaliacoes data-product-id="{{ product.id }}"></div>
+
+<!-- Reels/stories do produto -->
+<div data-avaliacoes-reels data-product-id="{{ product.id }}"></div>
 
 <!-- Mini-resumo (estrelas + link), perto do preço -->
 <div data-avaliacoes-summary data-product-id="{{ product.id }}"></div>
@@ -349,13 +363,14 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/run` (POST — dispara o cron manualmente),
 `/api/automations/abandoned-cart-routine`, `/api/automations/post-sale-routine`,
 `/api/automations/abandoned-cart-manual-send`,
+`/api/reels` (POST), `/api/reels/[id]` (PUT/DELETE), `/api/reels/upload-video`,
 `/api/team-users` (POST criar / DELETE remover membro),
 `/api/nuvemshop/connect-manual|callback|disconnect|sync-products`,
 `/api/nuvemshop/register-webhooks`, `/api/nuvemshop/check-automation-access`.
 
 Públicos (validados por `api_key`, com CORS):
 `/api/widget/submit` (POST review + mídia), `/api/widget/stats` (batch),
-`/api/widget/kits` (batch), `/api/widget/kit-contents`.
+`/api/widget/kits` (batch), `/api/widget/kit-contents`, `/api/widget/reels`.
 
 Webhook/cron: `/api/nuvemshop/webhook`, `/api/cron/send-requests`.
 Estáticos servidos pelo Next: `/widget/avaliacoes-widget.js`, `/preview/frame` (preview do widget).

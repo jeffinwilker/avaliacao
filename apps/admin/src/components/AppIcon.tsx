@@ -11,6 +11,7 @@ export type AppIconName =
   | "eye"
   | "settings"
   | "plug"
+  | "video"
   | "logout"
   | "menu"
   | "chevron-right"
@@ -115,6 +116,14 @@ function IconPaths({ name }: { name: AppIconName }) {
         <>
           <path d="m8 12 8-8M14 4l6 6M6 10l8 8M8 20l2-2M4 14l6 6" />
           <path d="m7 11-2 2a4.24 4.24 0 0 0 6 6l2-2" />
+        </>
+      );
+    case "video":
+      return (
+        <>
+          <rect x="4" y="5" width="13" height="14" rx="3" />
+          <path d="m17 10 4-2v8l-4-2" />
+          <path d="M9 9h3M9 13h2" />
         </>
       );
     case "logout":

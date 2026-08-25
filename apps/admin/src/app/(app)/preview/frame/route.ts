@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
     </div>
   </div>
 
+  <div data-avaliacoes-reels data-product-id="${esc(productId)}"></div>
   <div data-avaliacoes data-product-id="${esc(productId)}"></div>
   <script
     src="${origin}/widget/avaliacoes-widget.js"

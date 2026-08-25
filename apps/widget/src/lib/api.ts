@@ -77,6 +77,26 @@ export async function fetchKitsBatch(
  * Batch stats para múltiplos produtos (usado em vitrines/categorias).
  * Retorna um Map external_product_id → stats.
  */
+export async function fetchReelsBatch(
+  apiKey: string,
+  externalProductIds: string[]
+): Promise<Record<string, import("@avaliacoes/shared").WidgetProductReel[]>> {
+  if (externalProductIds.length === 0) return {};
+  try {
+    const ids = externalProductIds.map(encodeURIComponent).join(",");
+    const url = `${ADMIN_URL}/api/widget/reels?apiKey=${encodeURIComponent(apiKey)}&productIds=${ids}`;
+    const res = await fetch(url);
+    if (!res.ok) return {};
+    const json = await res.json();
+    return (json.reels ?? {}) as Record<
+      string,
+      import("@avaliacoes/shared").WidgetProductReel[]
+    >;
+  } catch {
+    return {};
+  }
+}
+
 export async function fetchStatsBatch(
   apiKey: string,
   externalProductIds: string[]
