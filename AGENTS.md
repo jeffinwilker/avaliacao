@@ -15,10 +15,15 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 
 - Branch de trabalho: `main`. A base local foi sincronizada com o Git até
   `61b5acd` antes da entrega atual.
-- A entrega atual moveu a coleta de aniversário para as Rotinas de pós-venda,
-  transformou o cadastro/edição de clientes em modal e adicionou importação em
-  massa por CSV/XLS/XLSX, com modelo, relação manual de colunas, prévia e
-  atualização de duplicados por e-mail ou telefone.
+- A entrega atual criou uma biblioteca central em `/automations` com automações
+  ativas e pré-definidas, criação em branco por gatilho e cópia dos modelos. Os
+  editores focados continuam gravando nas sequências existentes, preservando o
+  motor de envio e permitindo até cinco mensagens no carrinho.
+- Os editores de mensagem ganharam barra de formatação compatível com WhatsApp
+  (negrito, itálico, riscado, monoespaçado e listas). As variáveis de destino
+  agora são explícitas: `{{link_carrinho}}`, `{{link_avaliacao}}`,
+  `{{link_aniversario}}` e `{{link_rastreio}}`; `{{link}}` continua sendo
+  substituída somente para compatibilidade com mensagens antigas.
 - O typecheck e o build completo passaram após essas alterações.
 - Não foi criada migration nova nesta entrega. Ainda é necessário confirmar no
   ambiente de produção se as migrations `0014_store_members.sql`,
@@ -186,7 +191,11 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   com abas `/automations/abandoned-carts` e `/automations/post-sale`. Os atrasos
   usam minutos como fonte de verdade e aceitam minutos, horas ou dias na interface.
   Rotinas têm editor visual linear e as mensagens aceitam nenhum anexo, imagem
-  dinâmica do produto ou imagem fixa da biblioteca `automation-media`.
+  dinâmica do produto ou imagem fixa da biblioteca `automation-media`. A rota
+  central `/automations` lista as ativas e os modelos pré-definidos, permite
+  começar em branco escolhendo o gatilho ou criar a partir de um modelo. Um
+  fluxo de carrinho concentra até cinco mensagens; cada gatilho de pós-venda é
+  tratado como uma automação ativa independente na biblioteca.
   Etapas de carrinho podem criar um cupom exclusivo de uso único pela Nuvemshop,
   aplicá-lo ao checkout e inserir o código via `{{cupom}}`. Os novos códigos
   usam o prefixo curto `CAR` seguido de um identificador exclusivo. Requer os escopos

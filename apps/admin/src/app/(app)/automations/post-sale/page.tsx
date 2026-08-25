@@ -16,14 +16,16 @@ import {
 } from "./PostSaleDashboard";
 
 type AutomationSection = "orders" | "messages" | "routines";
+type AutomationEditorMode = "edit" | "blank" | "preset";
 
 export default async function PostSalePage({
   searchParams,
 }: {
-  searchParams: Promise<{ section?: string }>;
+  searchParams: Promise<{ section?: string; focus?: string; editor?: string }>;
 }) {
   const params = await searchParams;
   const section = normalizeSection(params.section);
+  const editorMode = normalizeEditorMode(params.editor);
   const admin = createAdminClient();
   const { data: store } = await admin
     .from("stores")
@@ -124,7 +126,7 @@ export default async function PostSalePage({
         {section === "orders" && <RunAutomationsButton />}
       </div>
 
-      <AutomationNav />
+      {!params.editor && <AutomationNav />}
 
       <PostSaleDashboard
         storeId={store.id}
@@ -134,7 +136,10 @@ export default async function PostSalePage({
           (settings?.request_delay_days ?? 1) * 1_440
         }
         initialReviewTemplate={
-          settings?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE
+          (settings?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE).replaceAll(
+            "{{link}}",
+            "{{link_avaliacao}}"
+          )
         }
         initialReviewAttachmentType={settings?.whatsapp_attachment_type ?? "none"}
         initialReviewAttachmentUrl={settings?.whatsapp_attachment_url ?? null}
@@ -158,14 +163,22 @@ export default async function PostSalePage({
           settings?.birthday_collection_delay_minutes ?? 1_440
         }
         initialBirthdayTemplate={
-          settings?.birthday_collection_whatsapp_template ??
-          DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE
+          (
+            settings?.birthday_collection_whatsapp_template ??
+            DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE
+          ).replaceAll("{{link}}", "{{link_aniversario}}")
         }
         orders={orders}
         mode={section === "routines" ? "routine" : section}
+        focusAutomation={params.focus ?? null}
+        editorMode={params.editor ? editorMode : null}
       />
     </div>
   );
+}
+
+function normalizeEditorMode(value: string | undefined): AutomationEditorMode {
+  return value === "blank" || value === "preset" ? value : "edit";
 }
 
 function normalizeSection(value: string | undefined): AutomationSection {

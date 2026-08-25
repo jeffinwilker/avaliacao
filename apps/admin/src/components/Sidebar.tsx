@@ -48,7 +48,7 @@ const groups: Array<{
         automationSection: "messages",
       },
       {
-        href: "/automations/abandoned-carts?section=routines",
+        href: "/automations?section=routines",
         label: "Rotinas",
         icon: "clock",
         automationSection: "routines",
@@ -115,12 +115,19 @@ export function Sidebar({
             </div>
             <div className="space-y-0.5">
               {group.items.map((item) => {
-                const href = item.automationSection
-                  ? `/automations/${automationType}?section=${item.automationSection}`
-                  : item.href;
-                const active = item.automationSection
-                  ? pathname.startsWith("/automations/") &&
-                    activeAutomationSection === item.automationSection
+                const isAutomationLibrary = item.automationSection === "routines";
+                const href = isAutomationLibrary
+                  ? item.href
+                  : item.automationSection
+                    ? `/automations/${automationType}?section=${item.automationSection}`
+                    : item.href;
+                const active = isAutomationLibrary
+                  ? pathname === "/automations" ||
+                    (pathname.startsWith("/automations/") &&
+                      activeAutomationSection === "routines")
+                  : item.automationSection
+                    ? pathname.startsWith("/automations/") &&
+                      activeAutomationSection === item.automationSection
                   : item.exact
                     ? pathname === item.href
                     : pathname.startsWith(item.href);

@@ -112,9 +112,12 @@ export async function PUT(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (birthdayEnabled && !birthdayTemplate.includes("{{link}}")) {
+  if (
+    birthdayEnabled &&
+    !hasLinkVariable(birthdayTemplate, "{{link_aniversario}}")
+  ) {
     return NextResponse.json(
-      { error: "A mensagem de aniversário precisa conter {{link}}" },
+      { error: "A mensagem de aniversário precisa conter {{link_aniversario}}" },
       { status: 400 }
     );
   }
@@ -124,9 +127,12 @@ export async function PUT(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (reviewEnabled && !reviewTemplate.includes("{{link}}")) {
+  if (
+    reviewEnabled &&
+    !hasLinkVariable(reviewTemplate, "{{link_avaliacao}}")
+  ) {
     return NextResponse.json(
-      { error: "A mensagem do pedido de avaliação precisa conter {{link}}" },
+      { error: "A mensagem do pedido de avaliação precisa conter {{link_avaliacao}}" },
       { status: 400 }
     );
   }
@@ -237,6 +243,10 @@ export async function PUT(req: NextRequest) {
   await Promise.all(cancellations);
 
   return NextResponse.json({ ok: true });
+}
+
+function hasLinkVariable(template: string, variable: string): boolean {
+  return template.includes(variable) || template.includes("{{link}}");
 }
 
 function parseAttachment(typeValue: unknown, urlValue: unknown): {

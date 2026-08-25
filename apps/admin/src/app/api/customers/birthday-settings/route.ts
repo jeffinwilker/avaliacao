@@ -46,9 +46,13 @@ export async function PUT(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (enabled && !template.includes("{{link}}")) {
+  if (
+    enabled &&
+    !template.includes("{{link_aniversario}}") &&
+    !template.includes("{{link}}")
+  ) {
     return NextResponse.json(
-      { error: "A mensagem precisa conter {{link}}" },
+      { error: "A mensagem precisa conter {{link_aniversario}}" },
       { status: 400 }
     );
   }

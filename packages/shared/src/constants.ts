@@ -19,7 +19,7 @@ Sua opinião é muito importante pra gente — e ajuda outros clientes a escolhe
 
 Conta pra gente o que achou clicando no link abaixo:
 
-{{link}}
+{{link_avaliacao}}
 
 Obrigado!
 Equipe {{loja}}`;
@@ -29,7 +29,7 @@ export const DEFAULT_WHATSAPP_TEMPLATE = `Oi {{nome}}! 👋
 Aqui é da {{loja}}. Vimos que você comprou *{{produto}}* — esperamos que esteja amando!
 
 Conta pra gente o que achou? Leva só 1 minutinho:
-{{link}}
+{{link_avaliacao}}
 
 Obrigado! 💛`;
 
@@ -38,7 +38,7 @@ export const DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE = `Oi {{nome}}! 👋
 Vimos que você deixou *{{produtos}}* no carrinho da {{loja}}.
 
 Seu carrinho ainda está disponível. Para continuar a compra, acesse:
-{{link}}
+{{link_carrinho}}
 
 Se precisar de ajuda, é só responder esta mensagem. 💛`;
 
@@ -69,7 +69,7 @@ export const DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE = `Oi {{nome}}!
 Queremos te mandar um cupom especial no seu aniversário.
 
 Cadastre sua data por aqui:
-{{link}}
+{{link_aniversario}}
 
 É rapidinho.`;
 

@@ -153,7 +153,7 @@ export function SettingsForm({
             </Field>
             <Field
               label="Mensagem do e-mail"
-              hint="Variáveis disponíveis: {{nome}}, {{produto}}, {{link}}, {{loja}}"
+              hint="Variáveis disponíveis: {{nome}}, {{produto}}, {{link_avaliacao}}, {{loja}}"
             >
               <textarea
                 value={s.email_template ?? ""}

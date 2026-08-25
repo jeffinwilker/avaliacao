@@ -1,4 +1,5 @@
 import {
+  DEFAULT_ABANDONED_CART_SEQUENCE,
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
   type AbandonedCartMessageStep,
 } from "@avaliacoes/shared";
@@ -15,14 +16,16 @@ import { AutomationNav } from "../AutomationNav";
 import { SyncOrdersButton } from "../orders/SyncOrdersButton";
 
 type AutomationSection = "orders" | "messages" | "routines";
+type EditorMode = "edit" | "blank" | "preset";
 
 export default async function AbandonedCartsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ section?: string }>;
+  searchParams: Promise<{ section?: string; editor?: string }>;
 }) {
   const params = await searchParams;
   const section = normalizeSection(params.section);
+  const editorMode = normalizeEditorMode(params.editor);
   const admin = createAdminClient();
   const { data: store } = await admin
     .from("stores")
@@ -70,7 +73,7 @@ export default async function AbandonedCartsPage({
   }
 
   const settings = settingsResult.data;
-  const initialSteps: AbandonedCartMessageStep[] = parseAbandonedCartSequence(
+  const storedSteps: AbandonedCartMessageStep[] = parseAbandonedCartSequence(
     settings?.abandoned_cart_sequence,
     settings?.abandoned_cart_delay_hours ?? 8,
     settings?.abandoned_cart_whatsapp_template ??
@@ -78,7 +81,7 @@ export default async function AbandonedCartsPage({
   ).map((step) => ({
     id: step.id,
     delayMinutes: step.delay_minutes,
-    messageTemplate: step.message_template,
+    messageTemplate: step.message_template.replaceAll("{{link}}", "{{link_carrinho}}"),
     enabled: step.enabled,
     attachmentType: step.attachment_type,
     attachmentUrl: step.attachment_url,
@@ -88,6 +91,12 @@ export default async function AbandonedCartsPage({
     couponValidHours: step.coupon_valid_hours,
     couponMinPrice: step.coupon_min_price,
   }));
+  const initialSteps =
+    editorMode === "blank"
+      ? [blankCartStep()]
+      : editorMode === "preset"
+        ? DEFAULT_ABANDONED_CART_SEQUENCE.map((step) => ({ ...step }))
+        : storedSteps;
 
   const messagesByCheckout = new Map<string, CartMessageView[]>();
   for (const message of messagesResult.data ?? []) {
@@ -135,19 +144,40 @@ export default async function AbandonedCartsPage({
         {section === "orders" && <SyncOrdersButton />}
       </div>
 
-      <AutomationNav />
+      {!params.editor && <AutomationNav />}
 
       <AbandonedCartDashboard
         storeId={store.id}
         storeName={store.name}
-        initialEnabled={settings?.abandoned_cart_enabled ?? false}
+        initialEnabled={editorMode === "edit" ? settings?.abandoned_cart_enabled ?? false : true}
         initialSteps={initialSteps}
         initialMediaAssets={mediaAssets}
         carts={carts}
         mode={section === "routines" ? "routine" : section}
+        editorMode={params.editor ? editorMode : null}
       />
     </div>
   );
+}
+
+function normalizeEditorMode(value: string | undefined): EditorMode {
+  return value === "blank" || value === "preset" ? value : "edit";
+}
+
+function blankCartStep(): AbandonedCartMessageStep {
+  return {
+    id: "step-1",
+    delayMinutes: 10,
+    messageTemplate: "Oi {{nome}}!\n\n",
+    enabled: true,
+    attachmentType: "none",
+    attachmentUrl: null,
+    couponEnabled: false,
+    couponType: "percentage",
+    couponValue: 10,
+    couponValidHours: 48,
+    couponMinPrice: null,
+  };
 }
 
 function normalizeSection(value: string | undefined): AutomationSection {

@@ -9,6 +9,7 @@ import type {
 } from "@avaliacoes/shared";
 import { AutomationAttachmentPicker } from "./AutomationAttachmentPicker";
 import { AutomationDelayField } from "./AutomationDelayField";
+import { MessageEditor } from "./MessageEditor";
 
 export interface CartProductView {
   name: string;
@@ -62,7 +63,7 @@ const followUpTemplate = `Oi {{nome}}! 😊
 Passando para lembrar que seu carrinho com *{{produtos}}* continua disponível na {{loja}}.
 
 Você pode finalizar por aqui:
-{{link}}
+{{link_carrinho}}
 
 Se ficou alguma dúvida, pode responder esta mensagem.`;
 
@@ -74,6 +75,7 @@ export function AbandonedCartDashboard({
   initialMediaAssets,
   carts,
   mode = "all",
+  editorMode = null,
 }: {
   storeId: string;
   storeName: string;
@@ -82,6 +84,7 @@ export function AbandonedCartDashboard({
   initialMediaAssets: AutomationMediaAsset[];
   carts: AbandonedCartView[];
   mode?: "all" | "routine" | "messages" | "orders";
+  editorMode?: "edit" | "blank" | "preset" | null;
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState(initialEnabled);
@@ -261,7 +264,11 @@ export function AbandonedCartDashboard({
         ? "Mensagens salvas."
         : "Rotina salva e carrinhos atualizados.",
     });
-    router.refresh();
+    if (editorMode) {
+      router.push("/automations?section=routines");
+    } else {
+      router.refresh();
+    }
   }
 
   return (
@@ -276,9 +283,20 @@ export function AbandonedCartDashboard({
       {(showRoutine || showMessages) && <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-4 flex-wrap">
           <div>
+            {editorMode && (
+              <Link href="/automations?section=routines" className="mb-2 inline-flex text-xs font-semibold text-zinc-500 hover:text-zinc-900">
+                ← Voltar para automações
+              </Link>
+            )}
             <div className="flex items-center gap-2">
               <h2 className="font-semibold text-lg">
-                {showMessages ? "Mensagens de recuperação" : "Rotina de recuperação"}
+                {showMessages
+                  ? "Mensagens de recuperação"
+                  : editorMode === "blank"
+                    ? "Nova recuperação de carrinho"
+                    : editorMode === "preset"
+                      ? "Modelo: recuperação de carrinho"
+                      : "Rotina de recuperação"}
               </h2>
               {showRoutine && (
                 <span className={`text-xs font-medium rounded-full px-2 py-1 ${enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
@@ -297,12 +315,27 @@ export function AbandonedCartDashboard({
           )}
         </div>
 
+        {showRoutine && editorMode && editorMode !== "edit" && (
+          <div className="border-b border-blue-200 bg-blue-50 px-5 py-3 text-sm text-blue-900">
+            O carrinho possui um único fluxo de recuperação. Ao salvar, este fluxo substitui a rotina atual e pode conter até cinco mensagens.
+          </div>
+        )}
+
         {showRoutine ? (
           <AbandonedFlowBuilder
+            storeId={storeId}
             steps={steps}
+            mediaAssets={mediaAssets}
+            startEditing={Boolean(editorMode && editorMode !== "edit")}
             saving={saving}
             feedback={feedback}
             onUpdateStep={updateStep}
+            onAssetUploaded={(asset) =>
+              setMediaAssets((current) => [
+                asset,
+                ...current.filter((item) => item.path !== asset.path),
+              ])
+            }
             onAddStep={addStep}
             onRemoveStep={removeStep}
             onSave={saveRoutine}
@@ -331,28 +364,13 @@ export function AbandonedCartDashboard({
                   </button>
                 </div>
 
-                <textarea
+                <MessageEditor
                   value={step.messageTemplate}
-                  onChange={(event) => updateStep(step.id, { messageTemplate: event.target.value })}
-                  maxLength={4000}
-                  className="min-h-[150px] w-full resize-y rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm leading-6"
-                  aria-label={`Texto da mensagem ${index + 1}`}
+                  onChange={(messageTemplate) => updateStep(step.id, { messageTemplate })}
+                  variables={["{{nome}}", "{{produtos}}", "{{link_carrinho}}", "{{loja}}", "{{cupom}}", "{{desconto}}"]}
+                  label={`Texto da mensagem ${index + 1}`}
+                  minHeight={150}
                 />
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap gap-2">
-                    {["{{nome}}", "{{produtos}}", "{{link}}", "{{loja}}", "{{cupom}}", "{{desconto}}"].map((variable) => (
-                      <button
-                        type="button"
-                        key={variable}
-                        onClick={() => updateStep(step.id, { messageTemplate: `${step.messageTemplate}${step.messageTemplate.endsWith(" ") ? "" : " "}${variable}` })}
-                        className="rounded-md border border-gray-300 bg-white px-2 py-1 font-mono text-xs hover:bg-gray-100"
-                      >
-                        {variable}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="text-xs text-gray-400">{step.messageTemplate.length}/4000</span>
-                </div>
                 <CouponSettings
                   step={step}
                   onChange={(patch) => {
@@ -496,22 +514,33 @@ export function AbandonedCartDashboard({
 }
 
 function AbandonedFlowBuilder({
+  storeId,
   steps,
+  mediaAssets,
+  startEditing,
   saving,
   feedback,
   onUpdateStep,
+  onAssetUploaded,
   onAddStep,
   onRemoveStep,
   onSave,
 }: {
+  storeId: string;
   steps: AbandonedCartMessageStep[];
+  mediaAssets: AutomationMediaAsset[];
+  startEditing: boolean;
   saving: boolean;
   feedback: { type: "ok" | "error"; text: string } | null;
   onUpdateStep: (id: string, patch: Partial<AbandonedCartMessageStep>) => void;
+  onAssetUploaded: (asset: AutomationMediaAsset) => void;
   onAddStep: () => void;
   onRemoveStep: (id: string) => void;
   onSave: () => void;
 }) {
+  const [editingStepId, setEditingStepId] = useState<string | null>(
+    startEditing ? steps[0]?.id ?? null : null
+  );
   return (
     <div className="bg-zinc-50">
       <div className="min-h-[620px] overflow-x-auto bg-[radial-gradient(#d4d4d8_1px,transparent_1px)] bg-[size:20px_20px] px-5 py-8">
@@ -611,12 +640,13 @@ function AbandonedFlowBuilder({
                       )}
                     </div>
                     <div className="flex items-center gap-3">
-                      <Link
-                        href="/automations/abandoned-carts?section=messages"
+                      <button
+                        type="button"
+                        onClick={() => setEditingStepId((current) => current === step.id ? null : step.id)}
                         className="text-xs font-semibold text-brand-900 underline"
                       >
-                        Editar mensagem
-                      </Link>
+                        {editingStepId === step.id ? "Fechar edição" : "Editar mensagem"}
+                      </button>
                       <button
                         type="button"
                         onClick={() => onRemoveStep(step.id)}
@@ -627,6 +657,41 @@ function AbandonedFlowBuilder({
                       </button>
                     </div>
                   </div>
+                  {editingStepId === step.id && (
+                    <div className="mt-4 space-y-4 border-t border-zinc-100 pt-4">
+                      <MessageEditor
+                        value={step.messageTemplate}
+                        onChange={(messageTemplate) => onUpdateStep(step.id, { messageTemplate })}
+                        variables={["{{nome}}", "{{produtos}}", "{{link_carrinho}}", "{{loja}}", "{{cupom}}", "{{desconto}}"]}
+                        label={`Mensagem ${index + 1}`}
+                        minHeight={150}
+                      />
+                      <CouponSettings
+                        step={step}
+                        onChange={(patch) => {
+                          const nextPatch = { ...patch };
+                          if (
+                            patch.couponEnabled === true &&
+                            !step.couponEnabled &&
+                            !step.messageTemplate.includes("{{cupom}}")
+                          ) {
+                            nextPatch.messageTemplate = `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* e aproveite {{desconto}}. O desconto já estará aplicado ao seu carrinho.`;
+                          }
+                          onUpdateStep(step.id, nextPatch);
+                        }}
+                      />
+                      <AutomationAttachmentPicker
+                        storeId={storeId}
+                        attachmentType={step.attachmentType}
+                        attachmentUrl={step.attachmentUrl}
+                        assets={mediaAssets}
+                        onChange={(attachmentType, attachmentUrl) =>
+                          onUpdateStep(step.id, { attachmentType, attachmentUrl })
+                        }
+                        onAssetUploaded={onAssetUploaded}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1439,6 +1504,7 @@ function renderCartMessage(
     "{{nome}}": firstName,
     "{{produtos}}": cart.productsSummary || "seus produtos",
     "{{link}}": cart.checkoutUrl || "Link indisponível",
+    "{{link_carrinho}}": cart.checkoutUrl || "Link indisponível",
     "{{loja}}": storeName,
     "{{cupom}}": couponCode,
     "{{desconto}}": couponDiscountPreview(step),

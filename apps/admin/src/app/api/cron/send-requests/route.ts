@@ -112,6 +112,7 @@ async function sendReviewRequests(
       "{{nome}}": firstName(order.customer_name),
       "{{produto}}": product.name,
       "{{link}}": link,
+      "{{link_avaliacao}}": link,
       "{{loja}}": store.name,
     };
     const replaceVars = (template: string) =>

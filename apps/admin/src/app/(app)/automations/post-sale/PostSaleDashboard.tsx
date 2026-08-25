@@ -3,14 +3,23 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type {
-  AutomationAttachmentType,
-  AutomationMediaAsset,
-  PostSaleMessageStep,
-  PostSaleTrigger,
+import {
+  DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE,
+  DEFAULT_POST_SALE_SEQUENCE,
+  DEFAULT_WHATSAPP_TEMPLATE,
+  type AutomationAttachmentType,
+  type AutomationMediaAsset,
+  type PostSaleMessageStep,
+  type PostSaleTrigger,
 } from "@avaliacoes/shared";
+/*
+ * Os mesmos componentes atendem a edição normal, a criação em branco e a
+ * cópia de uma automação pré-definida. Isso mantém o motor de envio atual e
+ * evita duplicar configurações para o mesmo gatilho.
+ */
 import { AutomationAttachmentPicker } from "../AutomationAttachmentPicker";
 import { AutomationDelayField } from "../AutomationDelayField";
+import { MessageEditor } from "../MessageEditor";
 
 export interface PostSaleMessageView {
   stepId: string;
@@ -67,6 +76,8 @@ interface PostSaleDashboardProps {
   initialBirthdayTemplate: string;
   orders: PostSaleOrderView[];
   mode?: "all" | "routine" | "messages" | "orders";
+  focusAutomation?: string | null;
+  editorMode?: "edit" | "blank" | "preset" | null;
 }
 
 const dateTime = new Intl.DateTimeFormat("pt-BR", {
@@ -154,27 +165,67 @@ export function PostSaleDashboard({
   initialBirthdayTemplate,
   orders,
   mode = "orders",
+  focusAutomation = null,
+  editorMode = null,
 }: PostSaleDashboardProps) {
   const router = useRouter();
-  const [reviewEnabled, setReviewEnabled] = useState(initialReviewEnabled);
-  const [reviewDelayMinutes, setReviewDelayMinutes] = useState(
-    initialReviewDelayMinutes
+  const creatingReview = Boolean(
+    editorMode && editorMode !== "edit" && focusAutomation === "review_request"
   );
-  const [reviewTemplate, setReviewTemplate] = useState(initialReviewTemplate);
+  const creatingBirthday = Boolean(
+    editorMode && editorMode !== "edit" && focusAutomation === "birthday_collection"
+  );
+  const [reviewEnabled, setReviewEnabled] = useState(
+    creatingReview ? true : initialReviewEnabled
+  );
+  const [reviewDelayMinutes, setReviewDelayMinutes] = useState(
+    creatingReview ? 1_440 : initialReviewDelayMinutes
+  );
+  const [reviewTemplate, setReviewTemplate] = useState(
+    creatingReview
+      ? editorMode === "preset"
+        ? DEFAULT_WHATSAPP_TEMPLATE
+        : "Oi {{nome}}!\n\n{{link_avaliacao}}"
+      : initialReviewTemplate
+  );
   const [reviewAttachmentType, setReviewAttachmentType] = useState(
-    initialReviewAttachmentType
+    creatingReview ? "none" : initialReviewAttachmentType
   );
   const [reviewAttachmentUrl, setReviewAttachmentUrl] = useState(
-    initialReviewAttachmentUrl
+    creatingReview ? null : initialReviewAttachmentUrl
   );
-  const [postSaleSteps, setPostSaleSteps] = useState(initialPostSaleSequence);
+  const [postSaleSteps, setPostSaleSteps] = useState(() =>
+    initialPostSaleSequence.map((step) => {
+      if (!editorMode || editorMode === "edit" || focusAutomation !== step.id) {
+        return step;
+      }
+      const preset = DEFAULT_POST_SALE_SEQUENCE.find((item) => item.id === step.id);
+      return {
+        ...(editorMode === "preset" && preset ? preset : step),
+        messageTemplate:
+          editorMode === "preset" && preset
+            ? preset.messageTemplate
+            : "Oi {{nome}}!\n\n",
+        delayMinutes: editorMode === "preset" && preset ? preset.delayMinutes : 0,
+        enabled: true,
+        attachmentType: "none" as const,
+        attachmentUrl: null,
+      };
+    })
+  );
   const [mediaAssets, setMediaAssets] = useState(initialMediaAssets);
-  const [birthdayEnabled, setBirthdayEnabled] = useState(initialBirthdayEnabled);
+  const [birthdayEnabled, setBirthdayEnabled] = useState(
+    creatingBirthday ? true : initialBirthdayEnabled
+  );
   const [birthdayDelayMinutes, setBirthdayDelayMinutes] = useState(
-    initialBirthdayDelayMinutes
+    creatingBirthday ? 1_440 : initialBirthdayDelayMinutes
   );
   const [birthdayTemplate, setBirthdayTemplate] = useState(
-    initialBirthdayTemplate
+    creatingBirthday
+      ? editorMode === "preset"
+        ? DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE
+        : "Oi {{nome}}!\n\n{{link_aniversario}}"
+      : initialBirthdayTemplate
   );
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
@@ -255,7 +306,11 @@ export function PostSaleDashboard({
       type: "ok",
       text: showMessages ? "Mensagens salvas." : "Rotinas salvas.",
     });
-    router.refresh();
+    if (editorMode) {
+      router.push("/automations?section=routines");
+    } else {
+      router.refresh();
+    }
   }
 
   return (
@@ -263,8 +318,19 @@ export function PostSaleDashboard({
       {(showRoutine || showMessages) && <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
           <div>
+            {editorMode && (
+              <Link href="/automations?section=routines" className="mb-2 inline-flex text-xs font-semibold text-zinc-500 hover:text-zinc-900">
+                ← Voltar para automações
+              </Link>
+            )}
             <h2 className="text-lg font-semibold">
-              {showMessages ? "Mensagens de pós-venda" : "Rotinas de pós-venda"}
+              {showMessages
+                ? "Mensagens de pós-venda"
+                : editorMode === "blank"
+                  ? "Nova automação em branco"
+                  : editorMode === "preset"
+                    ? "Nova automação pré-definida"
+                    : "Rotinas de pós-venda"}
             </h2>
             <p className="mt-1 text-sm text-gray-500">
               {showMessages
@@ -292,7 +358,9 @@ export function PostSaleDashboard({
                 ? "Salvando..."
                 : showMessages
                   ? "Salvar mensagens"
-                  : "Salvar rotinas"}
+                  : editorMode
+                    ? "Salvar automação"
+                    : "Salvar rotinas"}
             </button>
           </div>
         </div>
@@ -300,7 +368,7 @@ export function PostSaleDashboard({
         <div className="grid gap-5 p-5 xl:grid-cols-2">
           {showRoutine ? (
             <>
-              <PostSaleFlowCard
+              {(!focusAutomation || focusAutomation === "review_request") && <PostSaleFlowCard
                 trigger="Pedido entregue"
                 title="Pedido de avaliação"
                 description="Envia um convite por produto depois que a entrega for confirmada."
@@ -322,9 +390,40 @@ export function PostSaleDashboard({
                   />
                 }
                 attachmentType={reviewAttachmentType}
-              />
+                editMessageHref={focusAutomation ? null : undefined}
+              >
+                {focusAutomation === "review_request" && (
+                  <>
+                    <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-5 text-emerald-900">
+                      Use <strong>{"{{link_avaliacao}}"}</strong> para abrir o formulário do produto comprado.
+                    </div>
+                    <TemplateEditor
+                      value={reviewTemplate}
+                      onChange={setReviewTemplate}
+                      variables={["{{nome}}", "{{produto}}", "{{link_avaliacao}}", "{{loja}}"]}
+                      label="Mensagem do pedido de avaliação"
+                    />
+                    <AutomationAttachmentPicker
+                      storeId={storeId}
+                      attachmentType={reviewAttachmentType}
+                      attachmentUrl={reviewAttachmentUrl}
+                      assets={mediaAssets}
+                      onChange={(attachmentType, attachmentUrl) => {
+                        setReviewAttachmentType(attachmentType);
+                        setReviewAttachmentUrl(attachmentUrl);
+                      }}
+                      onAssetUploaded={(asset) =>
+                        setMediaAssets((current) => [
+                          asset,
+                          ...current.filter((item) => item.path !== asset.path),
+                        ])
+                      }
+                    />
+                  </>
+                )}
+              </PostSaleFlowCard>}
 
-              <PostSaleFlowCard
+              {(!focusAutomation || focusAutomation === "birthday_collection") && <PostSaleFlowCard
                 trigger="Pedido criado"
                 title="Coleta de aniversário"
                 description="Pede a data de nascimento depois da compra quando o cliente ainda não possui aniversário cadastrado."
@@ -349,17 +448,17 @@ export function PostSaleDashboard({
                 editMessageHref={null}
               >
                 <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
-                  A variável <strong>{"{{link}}"}</strong> abre a página segura onde o cliente informa a data.
+                  A variável <strong>{"{{link_aniversario}}"}</strong> abre a página segura onde o cliente informa a data.
                 </div>
                 <TemplateEditor
                   value={birthdayTemplate}
                   onChange={setBirthdayTemplate}
-                  variables={["{{nome}}", "{{loja}}", "{{link}}"]}
+                  variables={["{{nome}}", "{{loja}}", "{{link_aniversario}}"]}
                   label="Mensagem para coletar o aniversário"
                 />
-              </PostSaleFlowCard>
+              </PostSaleFlowCard>}
 
-              {postSaleSteps.map((step) => {
+              {postSaleSteps.filter((step) => !focusAutomation || focusAutomation === step.id).map((step) => {
                 const meta = POST_SALE_STEP_META[step.id];
                 return (
                   <PostSaleFlowCard
@@ -389,11 +488,55 @@ export function PostSaleDashboard({
                       />
                     }
                     attachmentType={step.attachmentType}
+                    editMessageHref={focusAutomation ? null : undefined}
                   >
-                    {step.delayMinutes === 0 && (
+                    {step.delayMinutes === 0 && !focusAutomation && (
                       <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
                         A mensagem sai no próximo processamento da fila depois que o estado for recebido.
                       </div>
+                    )}
+                    {focusAutomation === step.id && (
+                      <>
+                        {meta.tracking && (
+                          <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-900">
+                            Use <strong>{"{{codigo_rastreio}}"}</strong> e <strong>{"{{link_rastreio}}"}</strong> para os dados da entrega.
+                          </div>
+                        )}
+                        <TemplateEditor
+                          value={step.messageTemplate}
+                          onChange={(messageTemplate) =>
+                            updatePostSaleStep(step.id, { messageTemplate })
+                          }
+                          variables={[
+                            "{{nome}}",
+                            "{{pedido}}",
+                            "{{produtos}}",
+                            "{{loja}}",
+                            "{{codigo_rastreio}}",
+                            "{{link_rastreio}}",
+                            "{{status_entrega}}",
+                          ]}
+                          label={`Mensagem: ${meta.title}`}
+                        />
+                        <AutomationAttachmentPicker
+                          storeId={storeId}
+                          attachmentType={step.attachmentType}
+                          attachmentUrl={step.attachmentUrl}
+                          assets={mediaAssets}
+                          onChange={(attachmentType, attachmentUrl) =>
+                            updatePostSaleStep(step.id, {
+                              attachmentType,
+                              attachmentUrl,
+                            })
+                          }
+                          onAssetUploaded={(asset) =>
+                            setMediaAssets((current) => [
+                              asset,
+                              ...current.filter((item) => item.path !== asset.path),
+                            ])
+                          }
+                        />
+                      </>
                     )}
                   </PostSaleFlowCard>
                 );
@@ -406,12 +549,12 @@ export function PostSaleDashboard({
                 description="O link abre o formulário móvel com o produto correto e identifica a compra."
               >
                 <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-5 text-emerald-900">
-                  Mantenha a variável <strong>{"{{link}}"}</strong> para levar o cliente diretamente à avaliação.
+                  Mantenha a variável <strong>{"{{link_avaliacao}}"}</strong> para levar o cliente diretamente à avaliação.
                 </div>
                 <TemplateEditor
                   value={reviewTemplate}
                   onChange={setReviewTemplate}
-                  variables={["{{nome}}", "{{produto}}", "{{link}}", "{{loja}}"]}
+                  variables={["{{nome}}", "{{produto}}", "{{link_avaliacao}}", "{{loja}}"]}
                   label="Mensagem do pedido de avaliação"
                 />
                 <AutomationAttachmentPicker
@@ -457,7 +600,6 @@ export function PostSaleDashboard({
                         "{{pedido}}",
                         "{{produtos}}",
                         "{{loja}}",
-                        "{{link}}",
                         "{{codigo_rastreio}}",
                         "{{link_rastreio}}",
                         "{{status_entrega}}",
@@ -771,34 +913,7 @@ function TemplateEditor({
   variables: string[];
   label: string;
 }) {
-  return (
-    <div>
-      <label className="text-sm font-semibold text-gray-800">{label}</label>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        maxLength={4000}
-        className="mt-2 min-h-[190px] w-full resize-y rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm leading-6"
-      />
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
-          {variables.map((variable) => (
-            <button
-              type="button"
-              key={variable}
-              onClick={() =>
-                onChange(`${value}${value.endsWith(" ") ? "" : " "}${variable}`)
-              }
-              className="rounded-md border border-gray-300 bg-white px-2 py-1 font-mono text-xs hover:bg-gray-100"
-            >
-              {variable}
-            </button>
-          ))}
-        </div>
-        <span className="text-xs text-gray-400">{value.length}/4000</span>
-      </div>
-    </div>
-  );
+  return <MessageEditor value={value} onChange={onChange} variables={variables} label={label} />;
 }
 
 function Toggle({
