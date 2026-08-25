@@ -27,6 +27,7 @@ const groups: Array<{
       { href: "/reviews", label: "Avaliações", icon: "star" },
       { href: "/kits", label: "Kits", icon: "gift" },
       { href: "/products", label: "Produtos", icon: "package" },
+      { href: "/customers", label: "Clientes", icon: "user" },
       { href: "/reels", label: "Reels", icon: "video" },
       { href: "/import", label: "Importar", icon: "download" },
     ],

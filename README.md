@@ -54,7 +54,7 @@ O bundle do widget fica em `apps/widget/dist/avaliacoes-widget.js` — esse arqu
 
 Para automações de carrinho abandonado e pós-venda, o aplicativo precisa das
 permissões `read_orders`, `write_orders`, `read_fulfillment_orders`,
-`read_coupons` e `write_coupons`, dos
+`read_coupons`, `write_coupons` e `read_customers`, dos
 webhooks de pedido registrados e do cron configurado conforme `deploy/README.md`.
 
 As telas de automação separam **Pedidos e envios**, **Mensagens** e **Rotinas**,

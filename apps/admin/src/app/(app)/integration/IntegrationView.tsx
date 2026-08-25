@@ -249,8 +249,15 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
     checking: boolean;
     orders: boolean;
     coupons: boolean;
+    customers: boolean;
     fulfillmentOrders: boolean;
-  }>({ checking: true, orders: false, coupons: false, fulfillmentOrders: false });
+  }>({
+    checking: true,
+    orders: false,
+    coupons: false,
+    customers: false,
+    fulfillmentOrders: false,
+  });
 
   useEffect(() => {
     fetch("/api/nuvemshop/check-automation-access")
@@ -260,6 +267,7 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
           checking: false,
           orders: json.read_orders === true,
           coupons: json.coupons === true,
+          customers: json.customers === true,
           fulfillmentOrders: json.fulfillment_orders === true,
         });
       })
@@ -267,6 +275,7 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
         checking: false,
         orders: false,
         coupons: false,
+        customers: false,
         fulfillmentOrders: false,
       }));
   }, []);
@@ -338,6 +347,23 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
         <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
           <p>
             Ative <code>read_coupons</code> e <code>write_coupons</code> no aplicativo Nuvemshop para criar e aplicar cupons automáticos.
+          </p>
+          {installUrl && (
+            <a href={installUrl} className="inline-block underline font-medium mt-2">
+              Atualizar autorização da loja
+            </a>
+          )}
+        </div>
+      )}
+      {!access.checking && access.customers && (
+        <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+          ✓ A permissão <code>read_customers</code> está ativa para importar clientes.
+        </p>
+      )}
+      {!access.checking && !access.customers && (
+        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+          <p>
+            Ative <code>read_customers</code> no aplicativo Nuvemshop para importar a base de clientes.
           </p>
           {installUrl && (
             <a href={installUrl} className="inline-block underline font-medium mt-2">

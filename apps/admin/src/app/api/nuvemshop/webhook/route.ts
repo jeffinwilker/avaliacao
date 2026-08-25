@@ -8,10 +8,17 @@ import {
   summarizeProducts,
 } from "@/lib/automations";
 import {
+  fetchCustomer,
   fetchFulfillmentOrder,
   fetchOrder,
   type NuvemshopFulfillmentOrder,
 } from "@/lib/nuvemshop";
+import {
+  customerMigrationError,
+  markNuvemshopCustomerInactive,
+  upsertNuvemshopCustomer,
+  upsertOrderCustomer,
+} from "@/lib/customers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const HANDLED_EVENTS = [
@@ -20,6 +27,9 @@ const HANDLED_EVENTS = [
   "order/packed",
   "order/fulfilled",
   "order/cancelled",
+  "customer/created",
+  "customer/updated",
+  "customer/deleted",
   "fulfillment_order/status_updated",
   "fulfillment_order/label_status_updated",
   "fulfillment_order/tracking_event_created",
@@ -60,10 +70,6 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient();
   const externalStoreId = String(payload.store_id);
-  const externalOrderId = String(payload.order_id ?? payload.id ?? "");
-  if (!externalOrderId) {
-    return NextResponse.json({ error: "Order not informed" }, { status: 400 });
-  }
   const { data: store } = await admin
     .from("stores")
     .select("id, name, domain, access_token")
@@ -73,6 +79,21 @@ export async function POST(req: NextRequest) {
 
   if (!store?.access_token) {
     return NextResponse.json({ error: "Store not connected" }, { status: 404 });
+  }
+
+  if (payload.event.startsWith("customer/")) {
+    return handleCustomerWebhook({
+      admin,
+      storeId: store.id,
+      externalStoreId,
+      token: store.access_token,
+      payload,
+    });
+  }
+
+  const externalOrderId = String(payload.order_id ?? payload.id ?? "");
+  if (!externalOrderId) {
+    return NextResponse.json({ error: "Order not informed" }, { status: 400 });
   }
 
   const order = await fetchOrder(
@@ -108,6 +129,13 @@ export async function POST(req: NextRequest) {
   const customerName = order.customer?.name || order.contact_name || "Cliente";
   const customerEmail = order.customer?.email || order.contact_email || null;
   const customerPhone = order.customer?.phone || order.contact_phone || null;
+  await upsertOrderCustomer(admin, {
+    storeId: store.id,
+    externalCustomerId: order.customer?.id ?? null,
+    name: customerName,
+    email: customerEmail,
+    phone: customerPhone,
+  }).catch(() => {});
 
   const { data: orderRow, error: orderError } = await admin
     .from("orders")
@@ -345,6 +373,54 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+async function handleCustomerWebhook(input: {
+  admin: ReturnType<typeof createAdminClient>;
+  storeId: string;
+  externalStoreId: string;
+  token: string;
+  payload: WebhookPayload;
+}) {
+  const externalCustomerId = String(input.payload.id ?? "");
+  if (!externalCustomerId) {
+    return NextResponse.json({ error: "Customer not informed" }, { status: 400 });
+  }
+
+  try {
+    if (input.payload.event === "customer/deleted") {
+      await markNuvemshopCustomerInactive(
+        input.admin,
+        input.storeId,
+        externalCustomerId
+      );
+      return NextResponse.json({ ok: true, customerDeleted: true });
+    }
+
+    const customer = await fetchCustomer(
+      input.externalStoreId,
+      input.token,
+      externalCustomerId
+    );
+    const action = await upsertNuvemshopCustomer(
+      input.admin,
+      input.storeId,
+      customer
+    );
+    return NextResponse.json({ ok: true, customer: action });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to sync customer";
+    const friendlyMessage = customerMigrationError(message);
+    if (friendlyMessage !== message) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: friendlyMessage,
+      });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 async function resolveFulfillment(

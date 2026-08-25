@@ -34,6 +34,7 @@ export interface NuvemshopOrder {
   number?: number | string;
   token?: string | null;
   customer?: {
+    id?: number | string;
     name: string;
     email?: string;
     phone?: string;
@@ -114,11 +115,43 @@ export interface NuvemshopCoupon {
   valid: boolean;
 }
 
+export interface NuvemshopCustomer {
+  id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  identification?: string | null;
+  note?: string | null;
+  default_address?: Record<string, unknown> | null;
+  addresses?: Array<Record<string, unknown>>;
+  billing_address?: string | null;
+  billing_number?: string | null;
+  billing_floor?: string | null;
+  billing_locality?: string | null;
+  billing_zipcode?: string | null;
+  billing_city?: string | null;
+  billing_province?: string | null;
+  billing_country?: string | null;
+  billing_phone?: string | null;
+  extra?: Record<string, unknown> | null;
+  total_spent?: string | number | null;
+  total_spent_currency?: string | null;
+  last_order_id?: number | string | null;
+  active?: boolean;
+  accepts_marketing?: boolean | null;
+  accepts_marketing_updated_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface NuvemshopCategory {
   id: number;
   name: { pt?: string; es?: string; en?: string };
   handle?: { pt?: string; es?: string; en?: string };
 }
+
+const CUSTOMER_FIELDS =
+  "id,name,email,phone,identification,note,default_address,addresses,billing_address,billing_number,billing_floor,billing_locality,billing_zipcode,billing_city,billing_province,billing_country,billing_phone,extra,total_spent,total_spent_currency,last_order_id,active,accepts_marketing,created_at,updated_at";
 
 async function request<T>(
   method: string,
@@ -464,6 +497,62 @@ export async function checkCouponAccess(
   await request<NuvemshopCoupon[]>("GET", storeId, token, "/coupons", {
     params: { page: 1, per_page: 1, fields: "id,code" },
   });
+}
+
+export async function checkCustomerAccess(
+  storeId: string,
+  token: string
+): Promise<void> {
+  await request<NuvemshopCustomer[]>("GET", storeId, token, "/customers", {
+    params: { page: 1, per_page: 1, fields: "id,email" },
+  });
+}
+
+// ============================ CUSTOMERS ============================
+
+export async function fetchAllCustomers(
+  storeId: string,
+  token: string
+): Promise<NuvemshopCustomer[]> {
+  const all: NuvemshopCustomer[] = [];
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const batch = await request<NuvemshopCustomer[]>(
+      "GET",
+      storeId,
+      token,
+      "/customers",
+      {
+        params: {
+          page,
+          per_page: perPage,
+          fields: CUSTOMER_FIELDS,
+        },
+      }
+    );
+    if (batch.length === 0) break;
+    all.push(...batch);
+    if (batch.length < perPage) break;
+    page++;
+  }
+
+  return all;
+}
+
+export async function fetchCustomer(
+  storeId: string,
+  token: string,
+  customerId: string | number
+): Promise<NuvemshopCustomer> {
+  return request<NuvemshopCustomer>(
+    "GET",
+    storeId,
+    token,
+    `/customers/${customerId}`,
+    { params: { fields: CUSTOMER_FIELDS } }
+  );
 }
 
 /**

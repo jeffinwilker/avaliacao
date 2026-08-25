@@ -125,6 +125,12 @@ cd apps/admin && npx tsc --noEmit
   widget. O banco guarda metadados em `product_reels`; os arquivos vão para o
   Cloudflare R2 quando `R2_*` estiver configurado, com fallback para o bucket
   Supabase `product-reels` em teste.
+- **Clientes** (`/customers`): base local de clientes para relacionamento. Importa
+  da Nuvemshop via `GET /customers`, cadastra/edita manualmente e também alimenta
+  a base por `customer/created|updated|deleted` e pedidos recebidos por webhook. Guarda aniversário
+  (`birth_date`), telefone, e-mail, aceite de marketing, total gasto e origem
+  (`manual`/`nuvemshop`/`order`). A automação de aniversário com cupom ainda fica
+  como próxima fase.
 - **Painel admin**: dashboard, lista com filtros (pendente/aprovada/reprovada),
   detalhe com aprovar/reprovar/responder, configurações (templates, auto-publicar,
   cor da marca), **importação XLSX/CSV** com matching de produto por similaridade
@@ -175,8 +181,9 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   dinâmica do produto ou imagem fixa da biblioteca `automation-media`.
   Etapas de carrinho podem criar um cupom exclusivo de uso único pela Nuvemshop,
   aplicá-lo ao checkout e inserir o código via `{{cupom}}`. Requer os escopos
-  `read_coupons` e `write_coupons`, além de `read_orders`/`write_orders` e
-  `read_fulfillment_orders` para rastreio detalhado.
+  `read_coupons` e `write_coupons`, além de `read_orders`/`write_orders`,
+  `read_customers` para importar clientes e `read_fulfillment_orders` para
+  rastreio detalhado.
   Antes de cada envio, a fila confirma que o carrinho ainda está abandonado e
   cancela as mensagens atuais e futuras quando o checkout já virou pedido.
   Na lista, cada atividade abre uma prévia por clique e pode ser enviada
@@ -185,8 +192,9 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   O webhook `order/created` enfileira a confirmação do pedido; a confirmação de
   entrega cria os pedidos de avaliação; os demais eventos enfileiram as mensagens configuradas
   para cada estado e `order/cancelled` cancela mensagens pendentes.
-- Webhooks (`order/created|paid|packed|fulfilled|cancelled` e eventos de
-  `fulfillment_order` para status, etiqueta e rastreio) são **registrados automaticamente**
+- Webhooks (`order/created|paid|packed|fulfilled|cancelled`,
+  `customer/created|updated|deleted` e eventos de `fulfillment_order` para
+  status, etiqueta e rastreio) são **registrados automaticamente**
   ao conectar a loja (OAuth ou manual), quando `NEXT_PUBLIC_APP_URL` é https.
 - Tudo processado por `/api/cron/send-requests` (header `x-cron-secret`): sincroniza
   carrinhos, envia automações e processa solicitações de avaliação — idempotente.
@@ -214,6 +222,7 @@ Rode as migrations **em ordem** no SQL Editor (idempotentes, usam `if not exists
 | `0013_review_after_delivery.sql` | transfere o gatilho da avaliação para a entrega confirmada e define atraso padrão de um dia |
 | `0014_store_members.sql` | vínculo entre contas do Supabase Auth e a loja, com papéis owner/member |
 | `0015_product_reels.sql` | tabela `product_reels` e bucket público `product-reels` para reels/stories de produto |
+| `0016_customers.sql` | tabela `customers` para clientes importados da Nuvemshop ou cadastrados manualmente |
 
 **Storage buckets (públicos):** `review-media` (fotos/vídeos de reviews),
 `kit-media` (imagens de kit enviadas pelo lojista) e `automation-media`
@@ -364,9 +373,11 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/abandoned-cart-routine`, `/api/automations/post-sale-routine`,
 `/api/automations/abandoned-cart-manual-send`,
 `/api/reels` (POST), `/api/reels/[id]` (PUT/DELETE), `/api/reels/upload-video`,
+`/api/customers` (POST), `/api/customers/[id]` (PUT/DELETE),
 `/api/team-users` (POST criar / DELETE remover membro),
 `/api/nuvemshop/connect-manual|callback|disconnect|sync-products`,
-`/api/nuvemshop/register-webhooks`, `/api/nuvemshop/check-automation-access`.
+`/api/nuvemshop/sync-customers`, `/api/nuvemshop/register-webhooks`,
+`/api/nuvemshop/check-automation-access`.
 
 Públicos (validados por `api_key`, com CORS):
 `/api/widget/submit` (POST review + mídia), `/api/widget/stats` (batch),
