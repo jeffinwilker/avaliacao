@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { WhatsAppConnection } from "./WhatsAppConnection";
+import { TeamUsers, type TeamMemberView } from "./TeamUsers";
 
 interface Settings {
   store_id: string;
@@ -30,10 +31,18 @@ export function SettingsForm({
   storeName,
   initial,
   evolutionServerConfigured,
+  currentUserId,
+  teamMembers,
+  teamAvailable,
+  canManageTeam,
 }: {
   storeName: string;
   initial: Settings;
   evolutionServerConfigured: boolean;
+  currentUserId: string;
+  teamMembers: TeamMemberView[];
+  teamAvailable: boolean;
+  canManageTeam: boolean;
 }) {
   const router = useRouter();
   const [s, setS] = useState(initial);
@@ -69,6 +78,14 @@ export function SettingsForm({
           Conectada: <strong>{storeName}</strong>
         </div>
       </Section>
+
+      <TeamUsers
+        storeId={initial.store_id}
+        currentUserId={currentUserId}
+        initialMembers={teamMembers}
+        available={teamAvailable}
+        canManage={canManageTeam}
+      />
 
       <Section title="WhatsApp">
         <WhatsAppConnection

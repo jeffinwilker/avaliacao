@@ -1,5 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { SettingsForm } from "./SettingsForm";
+import type { TeamMemberView } from "./TeamUsers";
 import {
   DEFAULT_ABANDONED_CART_SEQUENCE,
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
@@ -9,6 +11,8 @@ import {
 } from "@avaliacoes/shared";
 
 export default async function SettingsPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   const admin = createAdminClient();
   const { data: store } = await admin
     .from("stores")
@@ -30,11 +34,28 @@ export default async function SettingsPage() {
     );
   }
 
-  const { data: settings } = await admin
-    .from("store_settings")
-    .select("*")
-    .eq("store_id", store.id)
-    .maybeSingle();
+  const [{ data: settings }, membersResult] = await Promise.all([
+    admin
+      .from("store_settings")
+      .select("*")
+      .eq("store_id", store.id)
+      .maybeSingle(),
+    admin
+      .from("store_members")
+      .select("id, user_id, name, email, role, created_at")
+      .eq("store_id", store.id)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const members: TeamMemberView[] = (membersResult.data ?? []).map((member) => ({
+    id: member.id,
+    userId: member.user_id,
+    name: member.name,
+    email: member.email,
+    role: member.role === "owner" ? "owner" : "member",
+    createdAt: member.created_at,
+  }));
+  const currentMember = members.find((member) => member.userId === user?.id);
 
   const initial = {
     store_id: store.id,
@@ -68,6 +89,10 @@ export default async function SettingsPage() {
         evolutionServerConfigured={Boolean(
           process.env.WHATSAPP_API_URL && process.env.WHATSAPP_API_KEY
         )}
+        currentUserId={user?.id ?? ""}
+        teamMembers={members}
+        teamAvailable={!membersResult.error}
+        canManageTeam={currentMember?.role === "owner"}
       />
     </div>
   );
