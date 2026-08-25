@@ -601,14 +601,19 @@ export async function ensureAbandonedCheckoutCoupon(
 
   if (!coupon) {
     const now = new Date();
-    const end = new Date(now.getTime() + input.validHours * 60 * 60 * 1000);
+    // A API da Nuvemshop aceita cupons com precisão de dia, sem horário.
+    // Arredondamos a validade para cima e garantimos ao menos o dia seguinte,
+    // evitando que um cupom de poucas horas expire na própria data de criação.
+    const validDays = Math.max(1, Math.ceil(input.validHours / 24));
+    const end = new Date(now);
+    end.setUTCDate(end.getUTCDate() + validDays);
     const body: Record<string, unknown> = {
       code: input.code,
       type: input.type,
       valid: true,
       max_uses: 1,
-      start_date: now.toISOString(),
-      end_date: end.toISOString(),
+      start_date: now.toISOString().slice(0, 10),
+      end_date: end.toISOString().slice(0, 10),
       combines_with_other_discounts: true,
     };
     if (input.type !== "shipping") body.value = input.value.toFixed(2);

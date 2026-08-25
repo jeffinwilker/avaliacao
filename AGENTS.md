@@ -361,6 +361,9 @@ Um único `<script>` cuida de todos os blocos. Cole os `<div>` onde quiser:
   a porta vem do `ecosystem.config.cjs` (env PORT).
 - **Bundle do widget é gitignored** (regenerado no build). Não commitar `public/widget/*.js`.
 - **Import grande travava** → matching pré-computa bigramas do catálogo uma vez + processa em chunks + paginação.
+- **Cupons da Nuvemshop aceitam datas sem horário** → `start_date` e `end_date`
+  devem usar `YYYY-MM-DD`; a validade configurada em horas precisa ser arredondada
+  para dias, com pelo menos o dia seguinte como término.
 
 ---
 
