@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   CustomersManager,
+  type BirthdayCollectionSettingsView,
   type CustomerView,
 } from "./CustomersManager";
 import { customerMigrationError } from "@/lib/customers";
@@ -36,6 +37,13 @@ export default async function CustomersPage() {
     .eq("store_id", store.id)
     .order("updated_at", { ascending: false })
     .limit(5000);
+  const settingsResult = await admin
+    .from("store_settings")
+    .select(
+      "birthday_collection_enabled, birthday_collection_delay_minutes, birthday_collection_whatsapp_template"
+    )
+    .eq("store_id", store.id)
+    .maybeSingle();
 
   const customers: CustomerView[] = (customersResult.data ?? []).map((customer) => ({
     id: customer.id,
@@ -58,6 +66,20 @@ export default async function CustomersPage() {
     createdAt: customer.created_at,
     updatedAt: customer.updated_at,
   }));
+  const birthdaySettings: BirthdayCollectionSettingsView = {
+    enabled: settingsResult.data?.birthday_collection_enabled === true,
+    delayMinutes: Math.max(
+      0,
+      Math.min(
+        43_200,
+        Number(settingsResult.data?.birthday_collection_delay_minutes ?? 1440)
+      )
+    ),
+    template:
+      typeof settingsResult.data?.birthday_collection_whatsapp_template === "string"
+        ? settingsResult.data.birthday_collection_whatsapp_template
+        : null,
+  };
 
   return (
     <div className="p-8">
@@ -86,6 +108,13 @@ export default async function CustomersPage() {
             : null
         }
         canSyncNuvemshop={store.platform === "nuvemshop" && Boolean(store.access_token)}
+        birthdaySettings={birthdaySettings}
+        birthdaySettingsAvailable={!settingsResult.error}
+        birthdaySettingsUnavailableMessage={
+          settingsResult.error
+            ? customerMigrationError(settingsResult.error.message)
+            : null
+        }
       />
     </div>
   );

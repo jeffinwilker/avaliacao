@@ -142,10 +142,10 @@ export async function upsertOrderCustomer(
     email?: string | null;
     phone?: string | null;
   }
-) {
+): Promise<string | null> {
   const email = text(input.email).toLowerCase() || null;
   const phone = text(input.phone) || null;
-  if (!email && !phone) return;
+  if (!email && !phone) return null;
 
   const externalCustomerId =
     input.externalCustomerId != null ? String(input.externalCustomerId) : null;
@@ -190,15 +190,20 @@ export async function upsertOrderCustomer(
       .update(update)
       .eq("id", existing.id);
     if (error) throw new Error(error.message);
-    return;
+    return existing.id;
   }
 
-  const { error } = await admin.from("customers").insert({
-    ...row,
-    external_customer_id: externalCustomerId,
-    source: "order",
-  });
+  const { data, error } = await admin
+    .from("customers")
+    .insert({
+      ...row,
+      external_customer_id: externalCustomerId,
+      source: "order",
+    })
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
+  return data?.id ?? null;
 }
 
 export async function markNuvemshopCustomerInactive(
@@ -223,9 +228,19 @@ export function customerMigrationError(message: string): string {
   const tableMissing =
     message.includes("customers") &&
     (message.includes("schema cache") || message.includes("does not exist"));
+  const birthdayMissing =
+    message.includes("birthday_collection") ||
+    message.includes("customer_birthdate_requests");
+  if (birthdayMissing) {
+    return "Execute a migration 0017_birthday_collection.sql no Supabase";
+  }
   return tableMissing
     ? "Execute a migration 0016_customers.sql no Supabase"
     : message;
+}
+
+export function normalizeBirthDateInput(value: unknown): string | null {
+  return normalizeDate(text(value));
 }
 
 function text(value: unknown): string {

@@ -84,6 +84,11 @@ na Nuvemshop.
 O convite de avaliação é criado somente quando a entrega é confirmada e, por
 padrão, fica agendado para o dia seguinte.
 
+A página **Clientes** também pode pedir a data de aniversário depois da compra,
+por WhatsApp, usando uma mensagem editável com `{{link}}`. O cliente abre
+`/cliente/aniversario/[token]` e a data fica salva na base local para campanhas
+futuras de aniversário.
+
 Cole no tema da loja (Configurações → HTML/CSS → produto.tpl):
 
 ```html

@@ -64,6 +64,15 @@ Recebemos seu pedido *#{{pedido}}* na {{loja}} com: {{produtos}}.
 
 Estamos preparando tudo com carinho. Se precisar falar com a gente, é só responder esta mensagem.`;
 
+export const DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE = `Oi {{nome}}!
+
+Queremos te mandar um cupom especial no seu aniversário.
+
+Cadastre sua data por aqui:
+{{link}}
+
+É rapidinho.`;
+
 export const DEFAULT_POST_SALE_SEQUENCE = [
   {
     id: "order_created" as const,

@@ -4,6 +4,7 @@ import {
   cancelAbandonedCartForOrder,
   cancelMessagesForOrder,
   parsePostSaleSequence,
+  queueBirthdayCollectionMessage,
   queuePostPurchaseMessage,
   summarizeProducts,
 } from "@/lib/automations";
@@ -129,13 +130,13 @@ export async function POST(req: NextRequest) {
   const customerName = order.customer?.name || order.contact_name || "Cliente";
   const customerEmail = order.customer?.email || order.contact_email || null;
   const customerPhone = order.customer?.phone || order.contact_phone || null;
-  await upsertOrderCustomer(admin, {
+  const customerId = await upsertOrderCustomer(admin, {
     storeId: store.id,
     externalCustomerId: order.customer?.id ?? null,
     name: customerName,
     email: customerEmail,
     phone: customerPhone,
-  }).catch(() => {});
+  }).catch(() => null);
 
   const { data: orderRow, error: orderError } = await admin
     .from("orders")
@@ -256,6 +257,11 @@ export async function POST(req: NextRequest) {
     )
     .eq("store_id", store.id)
     .maybeSingle();
+  const { data: birthdaySettings } = await admin
+    .from("store_settings")
+    .select("birthday_collection_enabled, birthday_collection_delay_minutes")
+    .eq("store_id", store.id)
+    .maybeSingle();
 
   const productsSummary = summarizeProducts(
     (order.products ?? []).map((item) => ({
@@ -311,6 +317,34 @@ export async function POST(req: NextRequest) {
         trackingStatus: trackingStatus || fulfillmentStatus,
       });
     }
+  }
+
+  if (
+    payload.event === "order/created" &&
+    birthdaySettings?.birthday_collection_enabled &&
+    customerId &&
+    customerPhone
+  ) {
+    const delayMinutes = Math.max(
+      0,
+      Math.min(
+        43_200,
+        birthdaySettings.birthday_collection_delay_minutes ?? 1_440
+      )
+    );
+    const orderCreatedAt = new Date(order.created_at).getTime();
+    const baseTime = Number.isFinite(orderCreatedAt) ? orderCreatedAt : Date.now();
+    await queueBirthdayCollectionMessage(admin, {
+      storeId: store.id,
+      customerId,
+      orderId: orderRow.id,
+      externalOrderId,
+      referenceLabel: String(order.number || externalOrderId),
+      customerName,
+      customerPhone,
+      productsSummary: productsSummary || "sua compra",
+      scheduledFor: new Date(baseTime + delayMinutes * 60_000).toISOString(),
+    }).catch(() => {});
   }
 
   if (payload.event === "order/created") {

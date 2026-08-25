@@ -129,8 +129,10 @@ cd apps/admin && npx tsc --noEmit
   da Nuvemshop via `GET /customers`, cadastra/edita manualmente e também alimenta
   a base por `customer/created|updated|deleted` e pedidos recebidos por webhook. Guarda aniversário
   (`birth_date`), telefone, e-mail, aceite de marketing, total gasto e origem
-  (`manual`/`nuvemshop`/`order`). A automação de aniversário com cupom ainda fica
-  como próxima fase.
+  (`manual`/`nuvemshop`/`order`). A própria tela permite configurar uma coleta
+  pós-compra por WhatsApp: mensagem editável com `{{link}}`, atraso em horas e
+  página pública `/cliente/aniversario/[token]` para o cliente preencher a data.
+  A automação de cupom no dia do aniversário ainda fica como próxima fase.
 - **Painel admin**: dashboard, lista com filtros (pendente/aprovada/reprovada),
   detalhe com aprovar/reprovar/responder, configurações (templates, auto-publicar,
   cor da marca), **importação XLSX/CSV** com matching de produto por similaridade
@@ -223,6 +225,7 @@ Rode as migrations **em ordem** no SQL Editor (idempotentes, usam `if not exists
 | `0014_store_members.sql` | vínculo entre contas do Supabase Auth e a loja, com papéis owner/member |
 | `0015_product_reels.sql` | tabela `product_reels` e bucket público `product-reels` para reels/stories de produto |
 | `0016_customers.sql` | tabela `customers` para clientes importados da Nuvemshop ou cadastrados manualmente |
+| `0017_birthday_collection.sql` | configuração da coleta pós-compra de aniversário e tokens em `customer_birthdate_requests` |
 
 **Storage buckets (públicos):** `review-media` (fotos/vídeos de reviews),
 `kit-media` (imagens de kit enviadas pelo lojista) e `automation-media`
@@ -374,6 +377,7 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/abandoned-cart-manual-send`,
 `/api/reels` (POST), `/api/reels/[id]` (PUT/DELETE), `/api/reels/upload-video`,
 `/api/customers` (POST), `/api/customers/[id]` (PUT/DELETE),
+`/api/customers/birthday-settings` (PUT),
 `/api/team-users` (POST criar / DELETE remover membro),
 `/api/nuvemshop/connect-manual|callback|disconnect|sync-products`,
 `/api/nuvemshop/sync-customers`, `/api/nuvemshop/register-webhooks`,
@@ -384,4 +388,5 @@ Públicos (validados por `api_key`, com CORS):
 `/api/widget/kits` (batch), `/api/widget/kit-contents`, `/api/widget/reels`.
 
 Webhook/cron: `/api/nuvemshop/webhook`, `/api/cron/send-requests`.
+Público com token: `/cliente/aniversario/[token]` e `/api/customer-birthdate/[token]`.
 Estáticos servidos pelo Next: `/widget/avaliacoes-widget.js`, `/preview/frame` (preview do widget).

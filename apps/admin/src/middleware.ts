@@ -40,13 +40,15 @@ export async function middleware(request: NextRequest) {
   const isWidgetAsset = pathname.startsWith("/widget");
   // Convites de avaliação são públicos e protegidos por token individual.
   const isReviewInvitation = pathname.startsWith("/avaliar/");
+  const isBirthdayCapture = pathname.startsWith("/cliente/aniversario/");
 
   if (
     !user &&
     !isAuthPath &&
     !isApiPath &&
     !isWidgetAsset &&
-    !isReviewInvitation
+    !isReviewInvitation &&
+    !isBirthdayCapture
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE } from "@avaliacoes/shared";
 
 export interface CustomerView {
   id: string;
@@ -22,6 +23,12 @@ export interface CustomerView {
   updatedAt: string;
 }
 
+export interface BirthdayCollectionSettingsView {
+  enabled: boolean;
+  delayMinutes: number;
+  template: string | null;
+}
+
 type Feedback = { type: "ok" | "error"; text: string } | null;
 
 const BRL = new Intl.NumberFormat("pt-BR", {
@@ -35,12 +42,18 @@ export function CustomersManager({
   available,
   unavailableMessage,
   canSyncNuvemshop,
+  birthdaySettings,
+  birthdaySettingsAvailable,
+  birthdaySettingsUnavailableMessage,
 }: {
   storeId: string;
   initialCustomers: CustomerView[];
   available: boolean;
   unavailableMessage: string | null;
   canSyncNuvemshop: boolean;
+  birthdaySettings: BirthdayCollectionSettingsView;
+  birthdaySettingsAvailable: boolean;
+  birthdaySettingsUnavailableMessage: string | null;
 }) {
   const router = useRouter();
   const [customers, setCustomers] = useState(initialCustomers);
@@ -57,6 +70,17 @@ export function CustomersManager({
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingBirthdaySettings, setSavingBirthdaySettings] = useState(false);
+  const [birthdayFeedback, setBirthdayFeedback] = useState<Feedback>(null);
+  const [birthdayEnabled, setBirthdayEnabled] = useState(
+    birthdaySettings.enabled
+  );
+  const [birthdayDelayHours, setBirthdayDelayHours] = useState(
+    String(Math.round(birthdaySettings.delayMinutes / 60))
+  );
+  const [birthdayTemplate, setBirthdayTemplate] = useState(
+    birthdaySettings.template || DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE
+  );
   const [feedback, setFeedback] = useState<Feedback>(null);
 
   const editing = editingId
@@ -170,6 +194,36 @@ export function CustomersManager({
     setFeedback({ type: "ok", text: "Cliente removido." });
   }
 
+  async function saveBirthdaySettings(event: React.FormEvent) {
+    event.preventDefault();
+    if (savingBirthdaySettings) return;
+    const delayHours = Number(birthdayDelayHours);
+    const delayMinutes = Math.round(delayHours * 60);
+    setSavingBirthdaySettings(true);
+    setBirthdayFeedback(null);
+
+    const res = await fetch("/api/customers/birthday-settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        storeId,
+        enabled: birthdayEnabled,
+        delayMinutes,
+        template: birthdayTemplate,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setSavingBirthdaySettings(false);
+    if (!res.ok) {
+      setBirthdayFeedback({
+        type: "error",
+        text: json.error || "Não foi possível salvar a coleta de aniversário.",
+      });
+      return;
+    }
+    setBirthdayFeedback({ type: "ok", text: "Coleta de aniversário salva." });
+  }
+
   function startEdit(customer: CustomerView) {
     setEditingId(customer.id);
     setName(customer.name);
@@ -214,10 +268,11 @@ export function CustomersManager({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(360px,420px)_1fr]">
-        <form
-          onSubmit={submit}
-          className="self-start rounded-xl border border-gray-200 bg-white p-5"
-        >
+        <div className="space-y-6">
+          <form
+            onSubmit={submit}
+            className="rounded-xl border border-gray-200 bg-white p-5"
+          >
           <div className="mb-5 flex items-start justify-between gap-3">
             <div>
               <h2 className="font-semibold">
@@ -298,7 +353,87 @@ export function CustomersManager({
               {feedback.text}
             </div>
           )}
-        </form>
+          </form>
+
+          <form
+            onSubmit={saveBirthdaySettings}
+            className="rounded-xl border border-gray-200 bg-white p-5"
+          >
+            <div className="mb-5">
+              <h2 className="font-semibold">Coleta de aniversário</h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Mensagem enviada depois da compra para clientes sem data cadastrada.
+              </p>
+            </div>
+
+            {!birthdaySettingsAvailable && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                {birthdaySettingsUnavailableMessage}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={birthdayEnabled}
+                  disabled={!birthdaySettingsAvailable}
+                  onChange={(event) => setBirthdayEnabled(event.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Pedir aniversário após a compra
+              </label>
+
+              <Input
+                label="Enviar após quantas horas"
+                value={birthdayDelayHours}
+                onChange={setBirthdayDelayHours}
+                type="number"
+                placeholder="24"
+              />
+
+              <label className="block text-sm font-medium text-gray-700">
+                Mensagem
+                <textarea
+                  value={birthdayTemplate}
+                  onChange={(event) => setBirthdayTemplate(event.target.value)}
+                  disabled={!birthdaySettingsAvailable}
+                  className="mt-1.5 min-h-40 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-normal outline-none focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:bg-gray-50"
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={
+                  savingBirthdaySettings ||
+                  !birthdaySettingsAvailable ||
+                  !Number.isFinite(Number(birthdayDelayHours)) ||
+                  Number(birthdayDelayHours) < 0 ||
+                  Number(birthdayDelayHours) > 720 ||
+                  !birthdayTemplate.trim() ||
+                  (birthdayEnabled && !birthdayTemplate.includes("{{link}}"))
+                }
+                className="w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingBirthdaySettings
+                  ? "Salvando..."
+                  : "Salvar coleta de aniversário"}
+              </button>
+
+              {birthdayFeedback && (
+                <div
+                  className={`rounded-lg border px-3 py-2.5 text-sm ${
+                    birthdayFeedback.type === "ok"
+                      ? "border-green-200 bg-green-50 text-green-800"
+                      : "border-red-200 bg-red-50 text-red-700"
+                  }`}
+                >
+                  {birthdayFeedback.text}
+                </div>
+              )}
+            </div>
+          </form>
+        </div>
 
         <section className="rounded-xl border border-gray-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 p-5">

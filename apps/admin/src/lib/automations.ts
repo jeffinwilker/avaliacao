@@ -1,4 +1,5 @@
 import {
+  DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE,
   DEFAULT_ABANDONED_CART_SEQUENCE,
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
   DEFAULT_POST_SALE_SEQUENCE,
@@ -17,7 +18,7 @@ import { sendWhatsApp } from "@/lib/providers/whatsapp";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
-type AutomationType = "abandoned_cart" | "post_purchase";
+type AutomationType = "abandoned_cart" | "post_purchase" | "birthday_collection";
 
 interface AutomationMessageInput {
   storeId: string;
@@ -46,6 +47,7 @@ interface AutomationJob {
   customer_phone: string;
   products_summary: string;
   link: string | null;
+  source_token: string | null;
   attempts: number;
   routine_step_key: string;
   sequence_step: number;
@@ -378,6 +380,113 @@ export async function queuePostPurchaseMessage(
   return Boolean(data?.length);
 }
 
+export async function queueBirthdayCollectionMessage(
+  admin: AdminClient,
+  input: {
+    storeId: string;
+    customerId: string;
+    orderId?: string | null;
+    externalOrderId?: string | null;
+    referenceLabel?: string | null;
+    customerName: string;
+    customerPhone: string;
+    productsSummary: string;
+    scheduledFor: string;
+  }
+): Promise<boolean> {
+  const phone = input.customerPhone.trim();
+  if (!phone) return false;
+
+  const { data: customer, error: customerError } = await admin
+    .from("customers")
+    .select("id, birth_date, active, accepts_marketing")
+    .eq("store_id", input.storeId)
+    .eq("id", input.customerId)
+    .maybeSingle();
+  if (customerError) throw customerError;
+  if (!customer || customer.birth_date || customer.active === false) return false;
+  if (customer.accepts_marketing === false) return false;
+
+  const { data: existingRequest, error: existingError } = await admin
+    .from("customer_birthdate_requests")
+    .select("id, token, status")
+    .eq("store_id", input.storeId)
+    .eq("customer_id", input.customerId)
+    .eq("status", "pending")
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  let request = existingRequest;
+  if (!request) {
+    const { data: inserted, error: insertError } = await admin
+      .from("customer_birthdate_requests")
+      .insert({
+        store_id: input.storeId,
+        customer_id: input.customerId,
+        order_id: input.orderId || null,
+        external_order_id: input.externalOrderId || null,
+        status: "pending",
+        scheduled_for: input.scheduledFor,
+        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      })
+      .select("id, token, status")
+      .single();
+
+    if (insertError) {
+      if (insertError.code !== "23505") throw insertError;
+      const { data: retried, error: retryError } = await admin
+        .from("customer_birthdate_requests")
+        .select("id, token, status")
+        .eq("store_id", input.storeId)
+        .eq("customer_id", input.customerId)
+        .eq("status", "pending")
+        .maybeSingle();
+      if (retryError) throw retryError;
+      request = retried;
+    } else {
+      request = inserted;
+    }
+  }
+
+  if (!request?.token) return false;
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const link = `${appUrl.replace(/\/$/, "")}/cliente/aniversario/${encodeURIComponent(
+    request.token
+  )}`;
+  const { data, error } = await admin
+    .from("automation_messages")
+    .upsert(
+      {
+        store_id: input.storeId,
+        automation_type: "birthday_collection",
+        external_reference: input.customerId,
+        reference_label:
+          input.referenceLabel || input.externalOrderId || input.customerName,
+        source_token: request.token,
+        customer_name: input.customerName || "Cliente",
+        customer_phone: phone,
+        products_summary: input.productsSummary || "sua compra",
+        link,
+        routine_step_key: "collect_birthday",
+        sequence_step: 1,
+        scheduled_for: input.scheduledFor,
+        attachment_type: "none",
+        attachment_url: null,
+        error_message: null,
+      },
+      {
+        onConflict:
+          "store_id,automation_type,external_reference,routine_step_key",
+        ignoreDuplicates: true,
+      }
+    )
+    .select("id");
+
+  if (error) throw error;
+  return Boolean(data?.length);
+}
+
 export async function cancelMessagesForOrder(
   admin: AdminClient,
   input: { storeId: string; externalOrderId: string; sourceToken?: string | null }
@@ -443,7 +552,8 @@ export async function sendScheduledAutomationMessages(
   if (!claimedJobs.length) return result;
 
   const storeIds = [...new Set(claimedJobs.map((job) => job.store_id))];
-  const [{ data: stores }, { data: settings }] = await Promise.all([
+  const [{ data: stores }, { data: settings }, { data: birthdaySettings }] =
+    await Promise.all([
     admin
       .from("stores")
       .select("id, name, external_store_id, access_token")
@@ -459,17 +569,27 @@ export async function sendScheduledAutomationMessages(
          whatsapp_instance`
       )
       .in("store_id", storeIds),
+    admin
+      .from("store_settings")
+      .select(
+        "store_id, birthday_collection_enabled, birthday_collection_whatsapp_template"
+      )
+      .in("store_id", storeIds),
   ]);
 
   const storesById = new Map((stores ?? []).map((store) => [store.id, store]));
   const settingsByStore = new Map(
     (settings ?? []).map((config) => [config.store_id, config])
   );
+  const birthdaySettingsByStore = new Map(
+    (birthdaySettings ?? []).map((config) => [config.store_id, config])
+  );
 
   for (const job of claimedJobs) {
     result.processed++;
     const store = storesById.get(job.store_id);
     const config = settingsByStore.get(job.store_id);
+    const birthdayConfig = birthdaySettingsByStore.get(job.store_id);
     const type = job.automation_type as AutomationType;
     const abandonedStep =
       type === "abandoned_cart" && config
@@ -498,6 +618,8 @@ export async function sendScheduledAutomationMessages(
     const enabled =
       type === "abandoned_cart"
         ? config?.abandoned_cart_enabled && abandonedStep?.enabled
+        : type === "birthday_collection"
+          ? birthdayConfig?.birthday_collection_enabled && Boolean(job.link)
         : postSaleStep?.enabled;
 
     if (!store || !config || !enabled) {
@@ -528,11 +650,34 @@ export async function sendScheduledAutomationMessages(
       continue;
     }
 
+    if (
+      type === "birthday_collection" &&
+      !(await birthdayCollectionStillPending(
+        admin,
+        job.store_id,
+        job.external_reference,
+        job.source_token
+      ))
+    ) {
+      await admin
+        .from("automation_messages")
+        .update({
+          status: "cancelled",
+          error_message: "Aniversário já preenchido ou convite indisponível",
+        })
+        .eq("id", job.id);
+      result.cancelled++;
+      continue;
+    }
+
     const template =
       type === "abandoned_cart"
         ? abandonedStep?.message_template ||
           config.abandoned_cart_whatsapp_template ||
           DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE
+        : type === "birthday_collection"
+          ? birthdayConfig?.birthday_collection_whatsapp_template ||
+            DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE
         : postSaleStep?.messageTemplate ||
           config.post_purchase_whatsapp_template ||
           DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE;
@@ -631,6 +776,13 @@ export async function sendScheduledAutomationMessages(
           error_message: null,
         })
         .eq("id", job.id);
+      if (type === "birthday_collection" && job.source_token) {
+        await admin
+          .from("customer_birthdate_requests")
+          .update({ sent_at: new Date().toISOString() })
+          .eq("token", job.source_token)
+          .eq("status", "pending");
+      }
       result.sent++;
     } catch (sendError) {
       const attempts = job.attempts + 1;
@@ -662,6 +814,46 @@ async function abandonedCartStillOpen(
     .maybeSingle();
   if (error) throw error;
   return data?.status === "abandoned";
+}
+
+async function birthdayCollectionStillPending(
+  admin: AdminClient,
+  storeId: string,
+  customerId: string,
+  token: string | null
+): Promise<boolean> {
+  if (!token) return false;
+
+  const [{ data: request, error: requestError }, { data: customer, error: customerError }] =
+    await Promise.all([
+      admin
+        .from("customer_birthdate_requests")
+        .select("id, status, expires_at")
+        .eq("store_id", storeId)
+        .eq("customer_id", customerId)
+        .eq("token", token)
+        .maybeSingle(),
+      admin
+        .from("customers")
+        .select("birth_date, active, accepts_marketing")
+        .eq("store_id", storeId)
+        .eq("id", customerId)
+        .maybeSingle(),
+    ]);
+
+  if (requestError) throw requestError;
+  if (customerError) throw customerError;
+  if (!request || request.status !== "pending") return false;
+  if (!customer || customer.birth_date || customer.active === false) return false;
+  if (customer.accepts_marketing === false) return false;
+  if (request.expires_at && Date.parse(request.expires_at) < Date.now()) {
+    await admin
+      .from("customer_birthdate_requests")
+      .update({ status: "expired" })
+      .eq("id", request.id);
+    return false;
+  }
+  return true;
 }
 
 /**
