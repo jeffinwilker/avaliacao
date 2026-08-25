@@ -55,8 +55,6 @@ export default async function SettingsPage() {
     role: member.role === "owner" ? "owner" : "member",
     createdAt: member.created_at,
   }));
-  const currentMember = members.find((member) => member.userId === user?.id);
-
   const initial = {
     store_id: store.id,
     auto_publish: false,
@@ -92,7 +90,7 @@ export default async function SettingsPage() {
         currentUserId={user?.id ?? ""}
         teamMembers={members}
         teamAvailable={!membersResult.error}
-        canManageTeam={currentMember?.role === "owner"}
+        canManageTeam={Boolean(user)}
       />
     </div>
   );

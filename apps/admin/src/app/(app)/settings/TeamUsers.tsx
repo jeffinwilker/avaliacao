@@ -160,7 +160,7 @@ export function TeamUsers({
                           : "bg-gray-100 text-gray-600"
                       }`}
                     >
-                      {member.role === "owner" ? "Administrador" : "Equipe"}
+                      {member.role === "owner" ? "Admin. principal" : "Administrador"}
                     </span>
                     {canManage && member.role !== "owner" && (
                       <button
@@ -262,7 +262,7 @@ export function TeamUsers({
             </div>
           ) : (
             <p className="mt-4 text-xs text-gray-500">
-              Somente o administrador principal pode adicionar ou remover usuários.
+              Somente usuários logados no painel podem adicionar ou remover usuários.
             </p>
           )}
 

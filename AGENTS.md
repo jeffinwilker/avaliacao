@@ -152,9 +152,10 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   padrão de um dia.
 
 ### Usuários da equipe
-- Em `/settings`, o administrador cria acessos com nome, e-mail e senha inicial e
-  pode remover membros. Todos acessam a mesma loja; somente o papel `owner`
-  gerencia a equipe. Vínculos em `store_members`, contas no Supabase Auth.
+- Em `/settings`, qualquer usuário logado no painel cria acessos com nome, e-mail
+  e senha inicial e pode remover membros. Todos acessam e administram a mesma loja;
+  o papel `owner` só identifica o administrador principal e não pode ser removido.
+  Vínculos em `store_members`, contas no Supabase Auth.
 
 ### Automação de mensagens (WhatsApp/e-mail)
 - **Solicitação de avaliação pós-compra**: o webhook cria `review_requests` com delay;

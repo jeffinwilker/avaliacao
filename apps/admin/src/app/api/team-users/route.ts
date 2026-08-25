@@ -47,12 +47,8 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = createAdminClient();
-  if (!(await isStoreOwner(admin, storeId, auth.id))) {
-    return NextResponse.json(
-      { error: "Somente o administrador pode adicionar usuários" },
-      { status: 403 }
-    );
-  }
+  const missingStoreResponse = await storeMissingResponse(admin, storeId);
+  if (missingStoreResponse) return missingStoreResponse;
 
   const { data: existingMember, error: existingError } = await admin
     .from("store_members")
@@ -128,12 +124,8 @@ export async function DELETE(req: NextRequest) {
   }
 
   const admin = createAdminClient();
-  if (!(await isStoreOwner(admin, storeId, auth.id))) {
-    return NextResponse.json(
-      { error: "Somente o administrador pode remover usuários" },
-      { status: 403 }
-    );
-  }
+  const missingStoreResponse = await storeMissingResponse(admin, storeId);
+  if (missingStoreResponse) return missingStoreResponse;
 
   const { data: target, error: targetError } = await admin
     .from("store_members")
@@ -172,19 +164,22 @@ async function authenticatedUser() {
   return user;
 }
 
-async function isStoreOwner(
+async function storeMissingResponse(
   admin: ReturnType<typeof createAdminClient>,
-  storeId: string,
-  userId: string
-): Promise<boolean> {
-  const { data } = await admin
-    .from("store_members")
+  storeId: string
+): Promise<NextResponse | null> {
+  const { data, error } = await admin
+    .from("stores")
     .select("id")
-    .eq("store_id", storeId)
-    .eq("user_id", userId)
-    .eq("role", "owner")
+    .eq("id", storeId)
     .maybeSingle();
-  return Boolean(data);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (!data) {
+    return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
+  }
+  return null;
 }
 
 function isValidEmail(email: string): boolean {
