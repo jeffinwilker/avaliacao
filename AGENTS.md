@@ -30,6 +30,10 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   reenviar manualmente pelo WhatsApp o convite de avaliação de cada produto. O
   envio reaproveita o template configurado e registra o resultado em
   `review_requests`; avaliações já respondidas não podem ser reenviadas.
+- O processo PM2 `avaliacoes-automation-worker` chama o cron interno a cada cinco
+  minutos. Ele mantém carrinhos, envios de automação e pedidos de avaliação
+  funcionando com o painel fechado. A lista de carrinhos também sincroniza ao
+  abrir, a cada cinco minutos e se redesenha a cada minuto enquanto estiver visível.
 - Não foi criada migration nova nesta entrega. Ainda é necessário confirmar no
   ambiente de produção se as migrations `0014_store_members.sql`,
   `0016_customers.sql` e `0017_birthday_collection.sql` já foram executadas.
@@ -224,6 +228,8 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   ao conectar a loja (OAuth ou manual), quando `NEXT_PUBLIC_APP_URL` é https.
 - Tudo processado por `/api/cron/send-requests` (header `x-cron-secret`): sincroniza
   carrinhos, envia automações e processa solicitações de avaliação — idempotente.
+  No VPS, `scripts/automation-worker.mjs` mantém esse endpoint ativo pelo processo
+  PM2 `avaliacoes-automation-worker`, sem depender do cron manual do Linux.
 
 ---
 
@@ -272,7 +278,7 @@ R2; o bucket Supabase `product-reels` fica como fallback/dev.
 
 ### Atualizar produção
 ```bash
-cd /var/www/avaliacoes && git pull && npm run build && pm2 restart avaliacoes-admin
+cd /var/www/avaliacoes && git pull && npm run build && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save
 ```
 - `npm run build` regenera o bundle do widget em `apps/admin/public/widget/avaliacoes-widget.js`
   (esse arquivo é **gitignored** — não versionar).
@@ -383,8 +389,8 @@ Um único `<script>` cuida de todos os blocos. Cole os `<div>` onde quiser:
 - **Configurar envio:** preencher `RESEND_*` e `WHATSAPP_*` no `.env.local` do VPS
   (sem isso, e-mail/WhatsApp não saem). Webhooks já são registrados automaticamente ao
   conectar a loja; há também `/api/nuvemshop/register-webhooks` pra re-registrar.
-- **Cron do Linux** chamando `/api/cron/send-requests` a cada 5min com header `x-cron-secret`
-  (o `vercel.json` só vale na Vercel; no VPS usar crontab — ver `deploy/README.md` passo 7).
+- **Worker de automações:** confirmar após cada deploy que `avaliacoes-automation-worker`
+  está `online` no PM2. Ele chama `/api/cron/send-requests` a cada cinco minutos.
 - **Kits antigos** (criados antes de peso/dimensões) precisam ser re-salvos ou re-sincronizados
   (botão "↻" na lista) pra ganhar peso/dimensão.
 - **Rotacionar segredos** antes de expor mais (service_role do Supabase e client_secret da

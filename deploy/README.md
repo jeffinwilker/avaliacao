@@ -108,26 +108,26 @@ No portal de parceiros (partners.nuvemshop.com.br), edita o App:
 
 Salva. **Desinstala e reinstala** o app na sua loja (senão fica com o access_token antigo).
 
-## Passo 7 — Cron de envio (e-mail/WhatsApp)
+## Passo 7 — Worker de envio (e-mail/WhatsApp)
 
 O mesmo endpoint processa solicitações de avaliação, consulta carrinhos
 abandonados na Nuvemshop e envia as mensagens de recuperação/pós-venda.
 
-Como não vamos usar Vercel Cron, agenda com o cron do próprio Linux:
+O `ecosystem.config.cjs` já inclui o processo `avaliacoes-automation-worker`.
+Ele chama o endpoint a cada cinco minutos mesmo com o painel fechado. Inicie ou
+atualize os dois processos e salve a lista do PM2:
 
 ```bash
-crontab -e
+cd /var/www/avaliacoes
+pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 save
+pm2 status
 ```
 
-Cola no fim:
-
-```
-*/5 * * * * curl -s -X POST -H "x-cron-secret: SEU_CRON_SECRET" http://127.0.0.1:3002/api/cron/send-requests > /dev/null 2>&1
-```
-
-Substitua `SEU_CRON_SECRET` pelo valor de `CRON_SECRET` do `.env.local`.
-O intervalo de 5 minutos permite que rotinas de carrinho configuradas para
-10 minutos sejam processadas sem um atraso grande do cron.
+Confirme que `avaliacoes-admin` e `avaliacoes-automation-worker` aparecem como
+`online`. O worker lê `CRON_SECRET` de `apps/admin/.env.local`; não copie a chave
+para o arquivo do PM2. Se existir uma linha antiga em `crontab -e` chamando o
+mesmo endpoint, remova-a para evitar execuções duplicadas.
 
 ## Atualizações futuras
 
@@ -138,7 +138,8 @@ cd /var/www/avaliacoes
 git pull
 npm install         # se mudou dependências
 npm run build
-pm2 restart avaliacoes-admin
+pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 save
 ```
 
 ## HTTPS (recomendado, quando tiver domínio)
