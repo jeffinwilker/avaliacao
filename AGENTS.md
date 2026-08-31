@@ -34,6 +34,9 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   minutos. Ele mantém carrinhos, envios de automação e pedidos de avaliação
   funcionando com o painel fechado. A lista de carrinhos também sincroniza ao
   abrir, a cada cinco minutos e se redesenha a cada minuto enquanto estiver visível.
+- O widget de Reels usa a URL pública atual do R2 junto do `storage_path`, então
+  corrige automaticamente vídeos salvos antes de uma troca de `R2_PUBLIC_URL`.
+  O modal funciona como Stories, sem controles nativos e com progresso no topo.
 - Não foi criada migration nova nesta entrega. Ainda é necessário confirmar no
   ambiente de produção se as migrations `0014_store_members.sql`,
   `0016_customers.sql` e `0017_birthday_collection.sql` já foram executadas.

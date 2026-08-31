@@ -9,6 +9,8 @@ export interface WidgetReelsProps {
 
 export function WidgetReels({ reels, brandColor, title }: WidgetReelsProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [loadError, setLoadError] = useState(false);
   const activeReel = activeIndex == null ? null : reels[activeIndex] ?? null;
   const hasMany = reels.length > 1;
   const currentPosition = activeIndex == null ? 0 : activeIndex + 1;
@@ -19,6 +21,8 @@ export function WidgetReels({ reels, brandColor, title }: WidgetReelsProps) {
 
   useEffect(() => {
     if (!activeReel) return;
+    setProgress(0);
+    setLoadError(false);
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") setActiveIndex(null);
       if (event.key === "ArrowRight") {
@@ -83,8 +87,21 @@ export function WidgetReels({ reels, brandColor, title }: WidgetReelsProps) {
               {progressItems.map((id, index) => (
                 <span
                   key={id}
-                  className={index <= activeIndex ? "active" : undefined}
-                />
+                  className="av-reel-progress-track"
+                >
+                  <span
+                    className="av-reel-progress-fill"
+                    style={{
+                      width: `${
+                        index < activeIndex
+                          ? 100
+                          : index === activeIndex
+                            ? progress
+                            : 0
+                      }%`,
+                    }}
+                  />
+                </span>
               ))}
             </div>
             <button
@@ -112,10 +129,28 @@ export function WidgetReels({ reels, brandColor, title }: WidgetReelsProps) {
               src={activeReel.videoUrl}
               poster={activeReel.thumbnailUrl ?? undefined}
               className="av-reel-player"
-              controls
               autoPlay
               playsInline
+              preload="auto"
+              onTimeUpdate={(event) => {
+                const video = event.currentTarget;
+                if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+                setProgress(Math.min(100, (video.currentTime / video.duration) * 100));
+              }}
+              onEnded={() => {
+                if (hasMany) {
+                  setActiveIndex((index) => nextIndex(index, reels.length));
+                } else {
+                  setActiveIndex(null);
+                }
+              }}
+              onError={() => setLoadError(true)}
             />
+            {loadError && (
+              <div className="av-reel-error" role="status">
+                Não foi possível carregar este vídeo.
+              </div>
+            )}
             {hasMany && (
               <button
                 type="button"

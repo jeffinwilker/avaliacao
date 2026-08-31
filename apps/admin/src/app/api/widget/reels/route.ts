@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { resolveReelVideoUrl } from "@/lib/reel-storage";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const CORS_HEADERS = {
@@ -56,7 +57,9 @@ export async function GET(req: NextRequest) {
 
   const { data: reels, error } = await admin
     .from("product_reels")
-    .select("id, product_id, title, video_url, thumbnail_url")
+    .select(
+      "id, product_id, title, video_url, storage_provider, storage_path, thumbnail_url"
+    )
     .eq("store_id", store.id)
     .in("product_id", Array.from(productMap.keys()))
     .eq("active", true)
@@ -78,7 +81,11 @@ export async function GET(req: NextRequest) {
     result[product.externalId].push({
       id: reel.id,
       title: reel.title,
-      videoUrl: reel.video_url,
+      videoUrl: resolveReelVideoUrl({
+        videoUrl: reel.video_url,
+        storageProvider: reel.storage_provider,
+        storagePath: reel.storage_path,
+      }),
       thumbnailUrl: reel.thumbnail_url,
       productName: product.name,
       productUrl: product.url,

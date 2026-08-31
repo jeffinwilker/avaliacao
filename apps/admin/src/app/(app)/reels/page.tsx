@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { resolveReelVideoUrl } from "@/lib/reel-storage";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { pickOne } from "@/lib/pick-one";
 import {
@@ -73,7 +74,11 @@ export default async function ReelsPage() {
         productImageUrl: product.image_url,
         productUrl: product.url,
         title: reel.title,
-        videoUrl: reel.video_url,
+        videoUrl: resolveReelVideoUrl({
+          videoUrl: reel.video_url,
+          storageProvider: reel.storage_provider,
+          storagePath: reel.storage_path,
+        }),
         storageProvider: reel.storage_provider === "r2" ? "r2" : "supabase",
         storagePath: reel.storage_path,
         thumbnailUrl: reel.thumbnail_url,

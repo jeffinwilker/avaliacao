@@ -10,6 +10,21 @@ export interface StoredReelVideo {
   provider: ReelStorageProvider;
 }
 
+export function resolveReelVideoUrl(input: {
+  videoUrl: string;
+  storageProvider?: string | null;
+  storagePath?: string | null;
+}): string {
+  if (
+    input.storageProvider === "r2" &&
+    input.storagePath &&
+    process.env.R2_PUBLIC_URL
+  ) {
+    return `${r2PublicUrl()}/${input.storagePath.replace(/^\/+/, "")}`;
+  }
+  return input.videoUrl;
+}
+
 export async function uploadReelVideo(
   admin: SupabaseClient,
   input: {

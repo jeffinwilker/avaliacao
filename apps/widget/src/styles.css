@@ -543,14 +543,33 @@
   display: flex;
   gap: 4px;
 }
-.av-reel-progress span {
+.av-reel-progress-track {
+  position: relative;
+  display: block;
+  overflow: hidden;
   height: 3px;
   flex: 1;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.38);
 }
-.av-reel-progress span.active {
+.av-reel-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
   background: #fff;
+  transition: width 120ms linear;
+}
+.av-reel-error {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: rgba(255, 255, 255, 0.86);
+  background: #18181b;
+  font-size: 14px;
+  text-align: center;
 }
 .av-reel-close {
   position: absolute;
