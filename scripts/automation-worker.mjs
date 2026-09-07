@@ -39,7 +39,11 @@ async function runAutomations() {
     const now = new Date().toISOString();
     console.log(
       `[${now}] carrinhos=${result.sync?.found ?? 0} ` +
+        `elegíveis=${result.sync?.eligible ?? 0} ` +
+        `agendadas=${result.sync?.queued ?? 0} ` +
+        `automações_processadas=${result.automations?.processed ?? 0} ` +
         `automações_enviadas=${result.automations?.sent ?? 0} ` +
+        `automações_falhas=${result.automations?.failed ?? 0} ` +
         `avaliações_enviadas=${result.reviews?.sent ?? 0}`
     );
     if (result.sync?.errors?.length) {

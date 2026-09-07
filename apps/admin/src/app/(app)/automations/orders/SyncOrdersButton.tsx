@@ -29,9 +29,25 @@ export function SyncOrdersButton() {
       }
 
       setLastUpdatedAt(new Date());
+      const syncErrors = Array.isArray(json.sync?.errors)
+        ? json.sync.errors.filter((error: unknown) => typeof error === "string")
+        : [];
+      if (syncErrors.length) {
+        setState("error");
+        setMessage(
+          "A lista foi atualizada, mas as mensagens automáticas não puderam ser agendadas."
+        );
+        console.error("Falha ao agendar automações:", syncErrors);
+        router.refresh();
+        return;
+      }
+
       if (!silent) {
         setState("done");
         setMessage(`${json.sync?.found ?? 0} carrinho(s) encontrado(s).`);
+      } else {
+        setState("idle");
+        setMessage(null);
       }
       router.refresh();
       if (!silent) window.setTimeout(() => setMessage(null), 3000);

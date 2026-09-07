@@ -37,18 +37,21 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - O widget de Reels usa a URL pública atual do R2 junto do `storage_path`, então
   corrige automaticamente vídeos salvos antes de uma troca de `R2_PUBLIC_URL`.
   O modal funciona como Stories, sem controles nativos e com progresso no topo.
-- Não foi criada migration nova nesta entrega. Ainda é necessário confirmar no
-  ambiente de produção se as migrations `0014_store_members.sql`,
-  `0016_customers.sql` e `0017_birthday_collection.sql` já foram executadas.
+- A migration `0018_fix_automation_message_sequence_constraint.sql` foi criada e
+  ainda precisa ser executada em produção. Ela remove a restrição legada que
+  impedia mais de uma etapa por carrinho e reinicia o corte das rotinas ativas
+  para não disparar mensagens antigas acumuladas. Também é necessário confirmar
+  se `0014_store_members.sql`, `0016_customers.sql` e
+  `0017_birthday_collection.sql` já foram executadas.
 - Logo antes disso, o commit `78516d2` redesenhou as atividades de carrinhos e
   adicionou envio manual imediato, inclusive para carrinhos antigos e retentativa
   de falhas. Esse envio registra o resultado na linha do tempo e revalida se o
   carrinho ainda está aberto.
 - Ao retomar: rode `git status`, `git log -5 --oneline` e leia esta seção. Não
   refaça funcionalidades já descritas como concluídas.
-- Próximo passo operacional provável: confirmar/aplicar as migrations pendentes
-  no SQL Editor do Supabase e atualizar o VPS com `git pull`, `npm run build` e
-  `pm2 restart avaliacoes-admin`.
+- Próximo passo operacional: executar a migration `0018` no SQL Editor do
+  Supabase e atualizar o VPS com `git pull`, `npm run build` e
+  `pm2 startOrReload ecosystem.config.cjs --update-env`.
 
 ### Forma de trabalhar neste projeto
 
@@ -259,6 +262,7 @@ Rode as migrations **em ordem** no SQL Editor (idempotentes, usam `if not exists
 | `0015_product_reels.sql` | tabela `product_reels` e bucket público `product-reels` para reels/stories de produto |
 | `0016_customers.sql` | tabela `customers` para clientes importados da Nuvemshop ou cadastrados manualmente |
 | `0017_birthday_collection.sql` | configuração da coleta pós-compra de aniversário e tokens em `customer_birthdate_requests` |
+| `0018_fix_automation_message_sequence_constraint.sql` | remove a unicidade legada de uma mensagem por carrinho e preserva a unicidade por etapa |
 
 **Storage buckets (públicos):** `review-media` (fotos/vídeos de reviews),
 `kit-media` (imagens de kit enviadas pelo lojista) e `automation-media`
