@@ -16,6 +16,7 @@ export type AppIconName =
   | "menu"
   | "chevron-right"
   | "clock"
+  | "chat"
   | "check-circle"
   | "trend"
   | "user";
@@ -142,6 +143,13 @@ function IconPaths({ name }: { name: AppIconName }) {
         <>
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
+        </>
+      );
+    case "chat":
+      return (
+        <>
+          <path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 9.5 9.5 0 0 1-4-.9L3 21l1.6-4.3A8.5 8.5 0 1 1 21 11.5Z" />
+          <path d="M8 12h.01M12 12h.01M16 12h.01" />
         </>
       );
     case "check-circle":

@@ -36,6 +36,11 @@ const groups: Array<{
     label: "Automações",
     items: [
       {
+        href: "/whatsapp",
+        label: "Conversas",
+        icon: "chat",
+      },
+      {
         href: "/automations/abandoned-carts?section=orders",
         label: "Pedidos e envios",
         icon: "receipt",

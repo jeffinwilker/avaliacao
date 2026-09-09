@@ -5,6 +5,7 @@ import { AppIcon } from "@/components/AppIcon";
 
 const sectionTitles = [
   { path: "/account/password", title: "Definir nova senha", group: "Conta" },
+  { path: "/whatsapp", title: "Conversas do WhatsApp", group: "Automações" },
   {
     path: "/automations/abandoned-carts",
     title: "Carrinhos abandonados",
