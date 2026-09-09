@@ -41,13 +41,23 @@ async function runAutomations() {
       `[${now}] carrinhos=${result.sync?.found ?? 0} ` +
         `elegíveis=${result.sync?.eligible ?? 0} ` +
         `agendadas=${result.sync?.queued ?? 0} ` +
+        `pedidos=${result.orders?.found ?? 0} ` +
+        `pedidos_entregues=${result.orders?.delivered ?? 0} ` +
+        `avaliações_agendadas=${
+          (result.orders?.reviewRequestsQueued ?? 0) +
+          (result.orders?.reviewRequestsReactivated ?? 0)
+        } ` +
         `automações_processadas=${result.automations?.processed ?? 0} ` +
         `automações_enviadas=${result.automations?.sent ?? 0} ` +
         `automações_falhas=${result.automations?.failed ?? 0} ` +
-        `avaliações_enviadas=${result.reviews?.sent ?? 0}`
+        `avaliações_enviadas=${result.reviews?.sent ?? 0} ` +
+        `avaliações_falhas=${result.reviews?.failed ?? 0}`
     );
     if (result.sync?.errors?.length) {
       console.error(`[${now}] erros_na_sincronização=${result.sync.errors.join(" | ")}`);
+    }
+    if (result.orders?.error) {
+      console.error(`[${now}] erro_nos_pedidos=${result.orders.error}`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

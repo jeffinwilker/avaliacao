@@ -4,6 +4,7 @@ import {
   syncAbandonedCarts,
 } from "@/lib/automations";
 import { sendDueReviewRequests } from "@/lib/review-requests";
+import { syncRecentOrders } from "@/lib/order-sync";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // O mesmo cron sincroniza carrinhos, envia recuperações/pós-venda e processa
@@ -23,8 +24,21 @@ export async function POST(req: NextRequest) {
     cancelled: 0,
     errors: [(error as Error).message],
   }));
+  const orders = await syncRecentOrders(admin, {
+    days: 60,
+    maxOrders: 500,
+    reviewLookbackDays: 7,
+  }).catch((error) => ({
+    found: 0,
+    synced: 0,
+    delivered: 0,
+    productsLinked: 0,
+    reviewRequestsQueued: 0,
+    reviewRequestsReactivated: 0,
+    error: (error as Error).message,
+  }));
   const automations = await sendScheduledAutomationMessages(admin);
   const reviews = await sendDueReviewRequests(admin);
 
-  return NextResponse.json({ ok: true, sync, automations, reviews });
+  return NextResponse.json({ ok: true, sync, orders, automations, reviews });
 }

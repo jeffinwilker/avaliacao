@@ -18,15 +18,36 @@ interface ExistingOrder {
   tracking_updated_at: string | null;
 }
 
-export async function syncRecentOrders(
-  admin: AdminClient,
-  options: { days?: number; maxOrders?: number } = {}
-): Promise<{
+interface ExistingReviewRequest {
+  id: string;
+  order_id: string;
+  product_id: string;
+  channel: "email" | "whatsapp";
+  status: string;
+  error_message: string | null;
+  created_at: string;
+}
+
+interface OrderSyncOptions {
+  days?: number;
+  maxOrders?: number;
+  scheduleReviewRequests?: boolean;
+  reviewLookbackDays?: number;
+}
+
+interface OrderSyncResult {
   found: number;
   synced: number;
   delivered: number;
   productsLinked: number;
-}> {
+  reviewRequestsQueued: number;
+  reviewRequestsReactivated: number;
+}
+
+export async function syncRecentOrders(
+  admin: AdminClient,
+  options: OrderSyncOptions = {}
+): Promise<OrderSyncResult> {
   const { data: store } = await admin
     .from("stores")
     .select("id, external_store_id, access_token")
@@ -41,7 +62,14 @@ export async function syncRecentOrders(
     options
   );
   if (!remoteOrders.length) {
-    return { found: 0, synced: 0, delivered: 0, productsLinked: 0 };
+    return {
+      found: 0,
+      synced: 0,
+      delivered: 0,
+      productsLinked: 0,
+      reviewRequestsQueued: 0,
+      reviewRequestsReactivated: 0,
+    };
   }
 
   const externalOrderIds = remoteOrders.map((order) => String(order.id));
@@ -185,12 +213,205 @@ export async function syncRecentOrders(
     if (error) throw new Error(error.message);
   }
 
+  const reviewQueue =
+    options.scheduleReviewRequests === false
+      ? { queued: 0, reactivated: 0 }
+      : await scheduleRecentDeliveredReviewRequests(admin, {
+          storeId: store.id,
+          remoteOrders,
+          syncedOrderRows: orderRows,
+          orderByExternalId,
+          orderItems,
+          reviewLookbackDays: options.reviewLookbackDays ?? 7,
+        });
+
   return {
     found: remoteOrders.length,
     synced: savedOrders.length,
     delivered: orderRows.filter((order) => Boolean(order.delivered_at)).length,
     productsLinked: orderItems.length,
+    reviewRequestsQueued: reviewQueue.queued,
+    reviewRequestsReactivated: reviewQueue.reactivated,
   };
+}
+
+async function scheduleRecentDeliveredReviewRequests(
+  admin: AdminClient,
+  input: {
+    storeId: string;
+    remoteOrders: NuvemshopOrder[];
+    syncedOrderRows: Array<{
+      external_order_id: string;
+      status: string;
+      delivered_at: string | null;
+    }>;
+    orderByExternalId: Map<string, string>;
+    orderItems: Array<{
+      order_id: string;
+      product_id: string;
+      quantity: number;
+    }>;
+    reviewLookbackDays: number;
+  }
+): Promise<{ queued: number; reactivated: number }> {
+  const { data: settings, error: settingsError } = await admin
+    .from("store_settings")
+    .select(
+      "email_enabled, whatsapp_enabled, request_delay_days, review_request_delay_minutes"
+    )
+    .eq("store_id", input.storeId)
+    .maybeSingle();
+  if (settingsError) throw new Error(settingsError.message);
+
+  const channels: Array<"email" | "whatsapp"> = [];
+  if (settings?.email_enabled) channels.push("email");
+  if (settings?.whatsapp_enabled) channels.push("whatsapp");
+  if (!channels.length) return { queued: 0, reactivated: 0 };
+
+  const delayMinutes = Math.max(
+    10,
+    settings?.review_request_delay_minutes ??
+      (settings?.request_delay_days ?? 1) * 1_440
+  );
+  const lookbackDays = Math.max(1, Math.min(30, input.reviewLookbackDays));
+  const deliveredSince = Date.now() - lookbackDays * 24 * 60 * 60 * 1_000;
+  const remoteByExternalId = new Map(
+    input.remoteOrders.map((order) => [String(order.id), order])
+  );
+  const productsByOrderId = new Map<string, Set<string>>();
+  for (const item of input.orderItems) {
+    const products = productsByOrderId.get(item.order_id) ?? new Set<string>();
+    products.add(item.product_id);
+    productsByOrderId.set(item.order_id, products);
+  }
+
+  const candidates: Array<{
+    orderId: string;
+    productId: string;
+    channel: "email" | "whatsapp";
+    scheduledFor: string;
+  }> = [];
+  for (const order of input.syncedOrderRows) {
+    if (!order.delivered_at || order.status === "cancelled") continue;
+    const deliveredAt = new Date(order.delivered_at).getTime();
+    if (!Number.isFinite(deliveredAt) || deliveredAt < deliveredSince) continue;
+
+    const orderId = input.orderByExternalId.get(order.external_order_id);
+    const remote = remoteByExternalId.get(order.external_order_id);
+    if (!orderId || !remote) continue;
+    const customerEmail = remote.customer?.email || remote.contact_email || null;
+    const customerPhone = remote.customer?.phone || remote.contact_phone || null;
+    const products = productsByOrderId.get(orderId) ?? new Set<string>();
+    const scheduledFor = new Date(
+      deliveredAt + delayMinutes * 60_000
+    ).toISOString();
+
+    for (const productId of products) {
+      if (settings?.email_enabled && customerEmail) {
+        candidates.push({ orderId, productId, channel: "email", scheduledFor });
+      }
+      if (settings?.whatsapp_enabled && customerPhone) {
+        candidates.push({
+          orderId,
+          productId,
+          channel: "whatsapp",
+          scheduledFor,
+        });
+      }
+    }
+  }
+  if (!candidates.length) return { queued: 0, reactivated: 0 };
+
+  const orderIds = [...new Set(candidates.map((candidate) => candidate.orderId))];
+  const existingRequests = await selectInChunks<ExistingReviewRequest>(
+    admin,
+    "review_requests",
+    "id, order_id, product_id, channel, status, error_message, created_at",
+    "order_id",
+    orderIds,
+    { store_id: input.storeId }
+  );
+  const existingByKey = new Map<string, ExistingReviewRequest[]>();
+  for (const request of existingRequests) {
+    const key = reviewRequestKey(
+      request.order_id,
+      request.product_id,
+      request.channel
+    );
+    const rows = existingByKey.get(key) ?? [];
+    rows.push(request);
+    existingByKey.set(key, rows);
+  }
+
+  const inserts: Array<{
+    store_id: string;
+    order_id: string;
+    product_id: string;
+    channel: "email" | "whatsapp";
+    scheduled_for: string;
+  }> = [];
+  const reactivations: Array<{ id: string; scheduledFor: string }> = [];
+  for (const candidate of candidates) {
+    const key = reviewRequestKey(
+      candidate.orderId,
+      candidate.productId,
+      candidate.channel
+    );
+    const existing = (existingByKey.get(key) ?? []).sort((a, b) =>
+      b.created_at.localeCompare(a.created_at)
+    );
+    if (existing.some((request) => request.status !== "cancelled")) continue;
+
+    const cancelled = existing[0];
+    if (cancelled) {
+      reactivations.push({ id: cancelled.id, scheduledFor: candidate.scheduledFor });
+      continue;
+    }
+    inserts.push({
+      store_id: input.storeId,
+      order_id: candidate.orderId,
+      product_id: candidate.productId,
+      channel: candidate.channel,
+      scheduled_for: candidate.scheduledFor,
+    });
+  }
+
+  let queued = 0;
+  for (const rows of chunks(inserts, 200)) {
+    if (!rows.length) continue;
+    const { data, error } = await admin
+      .from("review_requests")
+      .insert(rows)
+      .select("id");
+    if (error) throw new Error(error.message);
+    queued += data?.length ?? 0;
+  }
+
+  let reactivated = 0;
+  for (const request of reactivations) {
+    const { error } = await admin
+      .from("review_requests")
+      .update({
+        status: "scheduled",
+        scheduled_for: request.scheduledFor,
+        sent_at: null,
+        attempts: 0,
+        error_message: null,
+      })
+      .eq("id", request.id);
+    if (error) throw new Error(error.message);
+    reactivated++;
+  }
+
+  return { queued, reactivated };
+}
+
+function reviewRequestKey(
+  orderId: string,
+  productId: string,
+  channel: "email" | "whatsapp"
+): string {
+  return `${orderId}:${productId}:${channel}`;
 }
 
 function deliveryDetails(order: NuvemshopOrder): {

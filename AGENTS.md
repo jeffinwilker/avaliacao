@@ -11,10 +11,10 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 > (até peso/dimensões) e as **automações de WhatsApp** (carrinho abandonado +
 > pós-venda). Fase 5 de estoque de kit via webhook ainda pendente.
 
-## 0. Estado de continuidade (25/08/2026)
+## 0. Estado de continuidade (09/09/2026)
 
-- Branch de trabalho: `main`. A base local foi sincronizada com o Git até
-  `61b5acd` antes da entrega atual.
+- Branch de trabalho: `main`. O último commit antes da entrega atual era
+  `ed86809`.
 - A entrega atual criou uma biblioteca central em `/automations` com automações
   ativas e pré-definidas, criação em branco por gatilho e cópia dos modelos. Os
   editores focados continuam gravando nas sequências existentes, preservando o
@@ -34,6 +34,10 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   minutos. Ele mantém carrinhos, envios de automação e pedidos de avaliação
   funcionando com o painel fechado. A lista de carrinhos também sincroniza ao
   abrir, a cada cinco minutos e se redesenha a cada minuto enquanto estiver visível.
+- A sincronização automática agora também alcança os pedidos: o worker busca as
+  compras recentes, atualiza entrega/rastreio e cria de forma idempotente os
+  convites de avaliação das entregas dos últimos sete dias. A tela de pedidos
+  sincroniza ao abrir e a cada cinco minutos, além de se redesenhar a cada minuto.
 - O widget de Reels usa a URL pública atual do R2 junto do `storage_path`, então
   corrige automaticamente vídeos salvos antes de uma troca de `R2_PUBLIC_URL`.
   O modal funciona como Stories, sem controles nativos e com progresso no topo.
@@ -233,7 +237,8 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   status, etiqueta e rastreio) são **registrados automaticamente**
   ao conectar a loja (OAuth ou manual), quando `NEXT_PUBLIC_APP_URL` é https.
 - Tudo processado por `/api/cron/send-requests` (header `x-cron-secret`): sincroniza
-  carrinhos, envia automações e processa solicitações de avaliação — idempotente.
+  carrinhos e pedidos, cria convites de entregas recentes, envia automações e
+  processa solicitações de avaliação — idempotente.
   No VPS, `scripts/automation-worker.mjs` mantém esse endpoint ativo pelo processo
   PM2 `avaliacoes-automation-worker`, sem depender do cron manual do Linux.
 

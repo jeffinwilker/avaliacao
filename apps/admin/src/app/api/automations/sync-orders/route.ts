@@ -11,7 +11,11 @@ export async function POST() {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const sync = await syncRecentOrders(createAdminClient());
+    // A tela atualiza os dados; o worker central é o único responsável por
+    // criar convites automáticos, evitando duas filas concorrentes.
+    const sync = await syncRecentOrders(createAdminClient(), {
+      scheduleReviewRequests: false,
+    });
     return NextResponse.json({ ok: true, sync });
   } catch (error) {
     return NextResponse.json(
