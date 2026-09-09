@@ -37,9 +37,10 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - A área **Automações → Conversas** oferece uma caixa de entrada somente para
   leitura do histórico salvo pela Evolution API. Ela mostra as conversas diretas,
   busca por cliente/telefone/mensagem, organiza o histórico por dia e atualiza a
-  lista e a conversa aberta automaticamente. Não permite responder pelo painel,
-  não expõe a chave da Evolution ao navegador e não duplica as mensagens no banco
-  do aplicativo.
+  lista e a conversa aberta automaticamente. Imagens e figurinhas são recuperadas
+  sob demanda pelo servidor, aparecem nas bolhas e abrem ampliadas. Não permite
+  responder pelo painel, não expõe a chave da Evolution ao navegador e não duplica
+  as mensagens no banco do aplicativo.
 - A sincronização automática agora também alcança os pedidos: o worker busca as
   compras recentes, atualiza entrega/rastreio e cria de forma idempotente os
   convites de avaliação das entregas dos últimos sete dias. A tela de pedidos
@@ -427,7 +428,7 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/abandoned-cart-routine`, `/api/automations/post-sale-routine`,
 `/api/automations/abandoned-cart-manual-send`,
 `/api/automations/review-request-manual-send`, `/api/automations/sync-orders`,
-`/api/whatsapp/chats`, `/api/whatsapp/messages`,
+`/api/whatsapp/chats`, `/api/whatsapp/messages`, `/api/whatsapp/media`,
 `/api/reels` (POST), `/api/reels/[id]` (PUT/DELETE), `/api/reels/upload-video`,
 `/api/customers` (POST), `/api/customers/[id]` (PUT/DELETE),
 `/api/customers/import` (POST em massa),

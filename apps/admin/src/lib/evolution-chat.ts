@@ -14,6 +14,8 @@ export interface WhatsAppMessageView {
   fromMe: boolean;
   text: string;
   type: string;
+  mediaKind: "image" | "sticker" | null;
+  mediaUrl: string | null;
   sentAt: string;
   status: string | null;
 }
@@ -92,12 +94,37 @@ export function normalizeEvolutionMessages(
           fromMe: toBoolean(key?.fromMe),
           text: messageText(row).slice(0, 4_000),
           type: messageType(row),
+          mediaKind: imageMediaKind(row),
+          mediaUrl: null,
           sentAt,
           status: messageStatus(row),
         },
       ];
     })
     .sort((a, b) => dateValue(a.sentAt) - dateValue(b.sentAt));
+}
+
+export function findEvolutionMessage(
+  payload: unknown,
+  remoteJid: string,
+  messageId: string
+): Record<string, unknown> | null {
+  for (const value of messageRows(payload)) {
+    const row = asRecord(value);
+    const key = asRecord(row?.key);
+    const rowId = firstString(key?.id, row?.id);
+    const rowJid = firstString(key?.remoteJid, key?.remoteJidAlt);
+    if (row && rowId === messageId && (!rowJid || rowJid === remoteJid)) {
+      return row;
+    }
+  }
+  return null;
+}
+
+export function isEvolutionImageMessage(
+  value: Record<string, unknown>
+): boolean {
+  return imageMediaKind(value) !== null;
 }
 
 function messageRows(payload: unknown): unknown[] {
@@ -134,7 +161,7 @@ function arrayFromPayload(payload: unknown, keys: string[]): unknown[] {
 function messageText(value: Record<string, unknown> | null): string {
   if (!value) return "Mensagem";
   if (typeof value.message === "string") return value.message;
-  const message = asRecord(value.message);
+  const message = unwrapMessage(asRecord(value.message));
   if (!message) return messageTypeLabel(value.messageType);
 
   const extended = asRecord(message.extendedTextMessage);
@@ -180,6 +207,37 @@ function messageType(value: Record<string, unknown>): string {
   if (explicit) return explicit;
   const message = asRecord(value.message);
   return message ? Object.keys(message)[0] || "message" : "message";
+}
+
+function imageMediaKind(
+  value: Record<string, unknown>
+): "image" | "sticker" | null {
+  const explicit = firstString(value.messageType)?.toLowerCase() ?? "";
+  if (explicit.includes("image")) return "image";
+  if (explicit.includes("sticker")) return "sticker";
+
+  const message = unwrapMessage(asRecord(value.message));
+  if (message?.imageMessage) return "image";
+  if (message?.stickerMessage) return "sticker";
+  return null;
+}
+
+function unwrapMessage(
+  initial: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  let message = initial;
+  for (let depth = 0; message && depth < 5; depth += 1) {
+    const wrapper =
+      asRecord(message.ephemeralMessage) ??
+      asRecord(message.viewOnceMessage) ??
+      asRecord(message.viewOnceMessageV2) ??
+      asRecord(message.viewOnceMessageV2Extension) ??
+      asRecord(message.documentWithCaptionMessage);
+    const nested = asRecord(wrapper?.message);
+    if (!nested) return message;
+    message = nested;
+  }
+  return message;
 }
 
 function messageTypeLabel(value: unknown): string {

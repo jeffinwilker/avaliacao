@@ -46,9 +46,17 @@ export async function GET(req: NextRequest) {
         },
       }
     );
+    const messages = normalizeEvolutionMessages(payload, remoteJid).map(
+      (message) => ({
+        ...message,
+        mediaUrl: message.mediaKind
+          ? `/api/whatsapp/media?jid=${encodeURIComponent(remoteJid)}&id=${encodeURIComponent(message.id)}`
+          : null,
+      })
+    );
     return NextResponse.json(
       {
-        messages: normalizeEvolutionMessages(payload, remoteJid),
+        messages,
         refreshedAt: new Date().toISOString(),
       },
       { headers: { "Cache-Control": "no-store" } }
