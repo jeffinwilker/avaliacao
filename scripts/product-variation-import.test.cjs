@@ -21,6 +21,7 @@ function loadTs(name) {
 }
 const { buildColorImportPreview: preview } = loadTs("@/lib/product-color-import");
 const { syncProductImportRow: sync } = loadTs("@/lib/product-variation-sync");
+const { splitProductVariationName, isSummarizedSkuSheet } = loadTs("@/lib/product-import-format");
 
 function catalog(hasColor = false) {
   return [{
@@ -172,4 +173,39 @@ test("blocked rows cannot make remote changes", async (t) => {
   const requests = mockRequests(t);
   await assert.rejects(sync("store", "test-token", catalog()[0], row), /não está pronta/);
   assert.equal(requests.length, 0);
+});
+
+test("summarized SKU/Name/Color sheet is recognized without changing legacy SKU matching", () => {
+  const names = ["Camiseta \u2014 Tamanho: P | Cor: Azul"];
+  assert.equal(isSummarizedSkuSheet(["SKU", "Nome", "Cor"], names), true);
+  assert.equal(isSummarizedSkuSheet(["SKU", "Nome", "Cor"], ["Camiseta"]), false);
+  assert.equal(isSummarizedSkuSheet(["SKU atual", "Nome", "Cor"], names), false);
+  assert.equal(isSummarizedSkuSheet(["SKU", "Nome", "Cor", "Novo SKU"], names), false);
+});
+
+test("embedded attributes identify a variant even when Nuvemshop attribute order differs", () => {
+  const [row] = preview([input({ externalProductId: "", variantId: "", productName: "Camiseta \u2014 Cor: Azul | Tamanho: M" })], catalog(true));
+  assert.equal(row.status, "ready");
+  assert.equal(row.productName, "Camiseta");
+  assert.equal(row.variantExternalId, "102");
+});
+
+test("named options retain slashes in values and unknown or ambiguous options require review", () => {
+  const products = catalog(true);
+  for (const variant of products[0].variants) variant.values[1].pt = "Branco / Rosa";
+  const [row] = preview([input({ variantId: "", variation: "Cor: Branco / Rosa / Tamanho: P" })], products);
+  assert.equal(row.status, "ready");
+  assert.equal(row.variantExternalId, "101");
+  assert.equal(preview([input({ variantId: "", variation: "Cor: Branco / Rosa" })], products)[0].status, "review");
+  assert.equal(preview([input({ variantId: "", variation: "Quantidade: Kit 6" })], products)[0].status, "review");
+});
+
+test("ordinary product names are not split and duplicate product names require a choice", () => {
+  assert.deepEqual(splitProductVariationName("Camiseta - algodao"), { productName: "Camiseta - algodao", variation: "" });
+  assert.deepEqual(splitProductVariationName("Camiseta \u2014 nova colecao"), { productName: "Camiseta \u2014 nova colecao", variation: "" });
+  const products = catalog(true);
+  products.push({ ...products[0], id: 20, variants: [{ id: 201, values: [{ pt: "P" }, { pt: "Azul" }] }] });
+  const [row] = preview([input({ externalProductId: "", variantId: "", productName: "Camiseta \u2014 Tamanho: P | Cor: Azul" })], products);
+  assert.equal(row.status, "review");
+  assert.equal(row.productExternalId, null);
 });

@@ -54,6 +54,11 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   SKU ainda pode ser atualizado. Novo SKU vazio preserva o código; conflitos e
   códigos usados por outras variações são bloqueados. Preço, estoque e dimensões
   são preservados. Não usa migration e exige `read_products`/`write_products`.
+- O formato resumido `SKU / Nome / Cor`, com opções em `Nome` após travessão
+  (ex.: `Produto — Tamanho: P | Quantidade: Kit 6`), é reconhecido automaticamente:
+  SKU vira Novo SKU e produto/opções são separados na análise. A seleção da
+  variação compara nomes e valores dos atributos, independentemente da ordem.
+  Nomes de produtos ambíguos continuam exigindo revisão ou ID explícito.
 - A migration `0018_fix_automation_message_sequence_constraint.sql` foi criada e
   ainda precisa ser executada em produção. Ela remove a restrição legada que
   impedia mais de uma etapa por carrinho e reinicia o corte das rotinas ativas

@@ -4,6 +4,7 @@ import {
   normalize,
 } from "@/lib/match";
 import type { NuvemshopProduct, NuvemshopVariant } from "@/lib/nuvemshop";
+import { normalizeOption, parseNamedVariation, splitProductVariationName } from "@/lib/product-import-format";
 
 export const MAX_COLOR_IMPORT_ROWS = 5000;
 
@@ -230,7 +231,13 @@ function analyzeSku(input: ColorImportInput, product: NuvemshopProduct, indexes:
   if (input.variantId) {
     matches = variants.filter((variant) => String(variant.id) === normalizeNumericId(input.variantId!));
   } else if (input.variation) {
-    matches = variants.filter((variant) =>
+    const namedOptions = parseNamedVariation(input.variation);
+    matches = variants.filter((variant) => namedOptions ? namedOptions.every((option) => {
+      const index = (product.attributes ?? []).findIndex((attribute) =>
+        normalizeOption(translationText(attribute)) === normalizeOption(option.name)
+      );
+      return index >= 0 && normalizeOption(translationText(variant.values?.[index])) === normalizeOption(option.value);
+    }) :
       normalize(variantName(product, variant)) === normalize(input.variation!) ||
       normalize((variant.values ?? []).map(translationText).join(" / ")) === normalize(input.variation!)
     );
@@ -505,15 +512,16 @@ function previewWithoutProduct(
 }
 
 function sanitizeInput(input: ColorImportInput): ColorImportInput {
+  const inferred = splitProductVariationName(typeof input.productName === "string" ? input.productName : "");
   return {
     rowNumber: Math.max(2, Math.round(Number(input.rowNumber) || 2)),
-    productName: cleanText(input.productName, 300),
+    productName: cleanText(inferred.productName, 300),
     externalProductId: cleanText(input.externalProductId, 80),
     sku: cleanText(input.sku, 160),
     color: cleanText(input.color, 120),
     newSku: typeof input.newSku === "string" ? input.newSku.trim() : "",
     variantId: cleanText(input.variantId, 80),
-    variation: cleanText(input.variation, 500),
+    variation: cleanText(input.variation || inferred.variation, 500),
     overrideExternalProductId: cleanText(input.overrideExternalProductId ?? "", 80),
   };
 }

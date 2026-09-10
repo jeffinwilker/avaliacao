@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import clsx from "clsx";
+import { isSummarizedSkuSheet } from "@/lib/product-import-format";
 
 export interface ColorProductOption {
   externalProductId: string;
@@ -162,7 +163,12 @@ export function ColorVariationImporter({
       setFileName(file.name);
       setRawRows(parsed);
       setHeaders(detectedHeaders);
-      setMapping(guessMapping(detectedHeaders));
+      const detectedMapping = guessMapping(detectedHeaders);
+      if (isSummarizedSkuSheet(detectedHeaders, parsed.map((row) => cell(row, detectedMapping.productName)))) {
+        detectedMapping.newSku = detectedMapping.sku;
+        delete detectedMapping.sku;
+      }
+      setMapping(detectedMapping);
       setPreviewRows([]);
       setSummary(null);
       setOverrides({});
