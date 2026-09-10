@@ -395,7 +395,7 @@ export function ColorVariationImporter({
           <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Stat label="Linhas" value={summary.total} />
             <Stat label="Prontas" value={summary.ready} tone="green" />
-            <Stat label="Já cadastradas" value={summary.unchanged} />
+            <Stat label="Ignoradas com Cor" value={summary.unchanged} />
             <Stat label="Precisam de revisão" value={summary.review} tone="amber" />
             <Stat label="Bloqueadas" value={summary.blocked} tone="red" />
           </section>
@@ -667,7 +667,7 @@ function StatusBadge({ status }: { status: PreviewStatus }) {
   };
   const labels: Record<PreviewStatus, string> = {
     ready: "Pronto",
-    unchanged: "Já cadastrado",
+    unchanged: "Ignorado",
     review: "Revisar produto",
     blocked: "Bloqueado",
     duplicate: "Repetido",

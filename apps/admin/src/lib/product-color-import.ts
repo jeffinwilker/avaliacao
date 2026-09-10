@@ -95,7 +95,7 @@ export function buildColorImportPreview(
       };
     }
 
-    const safety = analyzeProductColor(match.product, clean.color);
+    const safety = analyzeProductColor(match.product);
     const fuzzyPrefix =
       match.method === "similar"
         ? `Encontrado por nome semelhante (${Math.round(match.score * 100)}%). `
@@ -120,14 +120,30 @@ export function buildColorImportPreview(
 }
 
 export function analyzeProductColor(
-  product: NuvemshopProduct,
-  color: string
+  product: NuvemshopProduct
 ): ProductSafety {
   const attributes = product.attributes ?? [];
   const variants = product.variants ?? [];
   const colorAttributeIndex = attributes.findIndex((attribute) =>
     isColorAttribute(translationText(attribute))
   );
+
+  if (colorAttributeIndex >= 0) {
+    const currentColors = uniqueDisplayValues(
+      variants.map((variant) =>
+        translationText((variant.values ?? [])[colorAttributeIndex])
+      )
+    );
+
+    return {
+      status: "unchanged",
+      message: currentColors.length
+        ? `Ignorado: o produto já possui a variação Cor (${currentColors.join(", ")}).`
+        : "Ignorado: o produto já possui a variação Cor.",
+      currentColors,
+      colorAttributeIndex,
+    };
+  }
 
   if (variants.length === 0) {
     return {
@@ -151,7 +167,7 @@ export function analyzeProductColor(
     };
   }
 
-  if (colorAttributeIndex < 0 && attributes.length >= 3) {
+  if (attributes.length >= 3) {
     return {
       status: "blocked",
       message:
@@ -161,48 +177,13 @@ export function analyzeProductColor(
     };
   }
 
-  if (colorAttributeIndex < 0) {
-    return {
-      status: "ready",
-      message:
-        variants.length > 1
-          ? `A variação Cor será adicionada às ${variants.length} combinações existentes.`
-          : "A variação Cor será criada.",
-      currentColors: [],
-      colorAttributeIndex,
-    };
-  }
-
-  const currentColors = uniqueDisplayValues(
-    variants.map((variant) =>
-      translationText((variant.values ?? [])[colorAttributeIndex])
-    )
-  );
-  if (currentColors.length > 1) {
-    return {
-      status: "blocked",
-      message:
-        "O produto já possui várias cores diferentes. A planilha não vai sobrescrevê-las.",
-      currentColors,
-      colorAttributeIndex,
-    };
-  }
-
-  if (currentColors.length === 1 && normalize(currentColors[0]) === normalize(color)) {
-    return {
-      status: "unchanged",
-      message: "Essa cor já está cadastrada na Nuvemshop.",
-      currentColors,
-      colorAttributeIndex,
-    };
-  }
-
   return {
     status: "ready",
-    message: currentColors.length
-      ? `A cor atual (${currentColors[0]}) será trocada por ${color}.`
-      : "A cor será preenchida nas variações existentes.",
-    currentColors,
+    message:
+      variants.length > 1
+        ? `A variação Cor será adicionada às ${variants.length} combinações existentes.`
+        : "A variação Cor será criada.",
+    currentColors: [],
     colorAttributeIndex,
   };
 }

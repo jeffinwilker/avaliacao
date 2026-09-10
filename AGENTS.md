@@ -51,7 +51,8 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - A página `/products/colors` importa XLSX/CSV com nome, ID ou SKU e uma coluna
   de cor. Ela mostra uma prévia, permite corrigir o produto encontrado e grava
   `Cor` como variação real na Nuvemshop, em lotes, sem alterar preço, estoque,
-  SKU ou dimensões. Não usa migration e exige `read_products`/`write_products`.
+  SKU ou dimensões. Produtos que já possuem a variação `Cor` são ignorados. Não
+  usa migration e exige `read_products`/`write_products`.
 - A migration `0018_fix_automation_message_sequence_constraint.sql` foi criada e
   ainda precisa ser executada em produção. Ela remove a restrição legada que
   impedia mais de uma etapa por carrinho e reinicia o corte das rotinas ativas
@@ -204,9 +205,10 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   promo, estoque, variant_id, **peso e dimensões**.
 - **Importação de cores** (`/products/colors`): aceita XLSX/CSV com produto por
   nome, ID ou SKU e uma coluna Cor. Antes de gravar, mostra uma prévia com matching
-  e permite trocar o produto encontrado. Cria ou atualiza a variação real `Cor`
-  preservando preço, estoque, SKU, peso, dimensões e variações existentes. Trabalha
-  com uma cor por produto; bloqueia conflitos, produtos já multicoloridos e o limite
+  e permite trocar o produto encontrado. Cria a variação real `Cor` somente quando
+  ela ainda não existe, preservando preço, estoque, SKU, peso, dimensões e variações
+  existentes. Trabalha com uma cor por produto; ignora qualquer produto que já tenha
+  a variação `Cor` e bloqueia conflitos e o limite
   de três atributos da Nuvemshop. Há um modelo preenchível na própria tela.
 - A confirmação de entrega (`tracking_delivered`) cria `review_requests` com delay
   padrão de um dia.
