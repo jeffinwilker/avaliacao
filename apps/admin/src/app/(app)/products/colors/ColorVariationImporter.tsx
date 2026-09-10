@@ -10,7 +10,7 @@ export interface ColorProductOption {
   imageUrl: string | null;
 }
 
-type FieldKey = "productName" | "externalProductId" | "sku" | "color";
+type FieldKey = "productName" | "externalProductId" | "sku" | "color" | "newSku" | "variantId" | "variation";
 type RawRow = Record<string, unknown>;
 type PreviewStatus = "ready" | "unchanged" | "review" | "blocked" | "duplicate";
 
@@ -27,6 +27,13 @@ interface PreviewRow {
   externalProductId: string;
   sku: string;
   color: string;
+  newSku: string;
+  variantId: string;
+  variation: string;
+  variantExternalId: string | null;
+  variantLabel: string;
+  currentSku: string;
+  variantOptions: Array<{ id: string; label: string; sku: string }>;
   productExternalId: string | null;
   matchedProductName: string | null;
   productImageUrl: string | null;
@@ -66,8 +73,11 @@ interface SyncResult {
 const FIELD_LABELS: Record<FieldKey, string> = {
   productName: "Nome do produto",
   externalProductId: "ID do produto na Nuvemshop",
-  sku: "SKU ou código",
+  sku: "SKU atual (identificação)",
   color: "Cor",
+  newSku: "Novo SKU",
+  variantId: "ID da variação",
+  variation: "Variação (opções ou tamanho)",
 };
 
 const FIELD_ALIASES: Record<FieldKey, string[]> = {
@@ -78,8 +88,11 @@ const FIELD_ALIASES: Record<FieldKey, string[]> = {
     "product id",
     "nuvemshop id",
   ],
-  sku: ["sku", "codigo", "codigo do produto", "referencia", "ref"],
+  sku: ["sku atual", "sku", "codigo", "codigo do produto", "referencia", "ref"],
   color: ["cor", "color", "colour", "nome da cor", "cor do produto"],
+  newSku: ["novo sku", "sku novo", "novo codigo", "new sku"],
+  variantId: ["id da variacao", "id variacao", "variant id", "id variante"],
+  variation: ["variacao", "opcoes", "tamanho", "variation", "size"],
 };
 
 const PAGE_SIZE = 50;
@@ -100,6 +113,7 @@ export function ColorVariationImporter({
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   const [summary, setSummary] = useState<PreviewSummary | null>(null);
   const [overrides, setOverrides] = useState<Record<number, string>>({});
+  const [variantOverrides, setVariantOverrides] = useState<Record<number, string>>({});
   const [filter, setFilter] = useState<"all" | "ready" | "attention">("all");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -124,8 +138,8 @@ export function ColorVariationImporter({
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const visibleRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const canAnalyze =
-    Boolean(mapping.color) &&
-    Boolean(mapping.productName || mapping.externalProductId || mapping.sku) &&
+    Boolean(mapping.color || mapping.newSku) &&
+    Boolean(mapping.productName || mapping.externalProductId || mapping.sku || mapping.variantId) &&
     rawRows.length > 0;
 
   async function handleFile(file: File) {
@@ -152,6 +166,7 @@ export function ColorVariationImporter({
       setPreviewRows([]);
       setSummary(null);
       setOverrides({});
+      setVariantOverrides({});
       setDirty(false);
       setPage(1);
     } catch (caught) {
@@ -188,7 +203,7 @@ export function ColorVariationImporter({
   async function synchronize() {
     if (!summary?.ready || syncing || dirty) return;
     const confirmed = window.confirm(
-      `Sincronizar a cor de ${summary.ready} produto${summary.ready === 1 ? "" : "s"} na Nuvemshop?`
+      `Sincronizar ${summary.ready} linha${summary.ready === 1 ? "" : "s"} de cores e SKUs na Nuvemshop?`
     );
     if (!confirmed) return;
 
@@ -208,6 +223,9 @@ export function ColorVariationImporter({
         overrideExternalProductId: row.productExternalId ?? "",
         sku: row.sku,
         color: row.color,
+        newSku: row.newSku,
+        variantId: row.variantExternalId ?? row.variantId,
+        variation: row.variation,
       }));
       for (let start = 0; start < rows.length; start += 20) {
         const batch = rows.slice(start, start + 20);
@@ -218,7 +236,7 @@ export function ColorVariationImporter({
         });
         const json = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(json.error || "Não foi possível sincronizar as cores.");
+          throw new Error(json.error || "Não foi possível sincronizar os dados.");
         }
         const batchResult = json as SyncResult;
         combined.results.push(...batchResult.results);
@@ -237,11 +255,12 @@ export function ColorVariationImporter({
       const reason = caught instanceof Error ? caught.message : "Não foi possível sincronizar.";
       setError(
         combined.results.length > 0
-          ? `A sincronização parou após ${combined.results.length} produto${combined.results.length === 1 ? "" : "s"}. ${reason}`
+          ? `A sincronização parou após ${combined.results.length} linha${combined.results.length === 1 ? "" : "s"}. ${reason}`
           : reason
       );
     } finally {
       setSyncing(false);
+      setDirty(true);
     }
   }
 
@@ -252,6 +271,9 @@ export function ColorVariationImporter({
       externalProductId: cell(row, mapping.externalProductId),
       sku: cell(row, mapping.sku),
       color: cell(row, mapping.color),
+      newSku: cell(row, mapping.newSku),
+      variantId: variantOverrides[index + 2] ?? cell(row, mapping.variantId),
+      variation: cell(row, mapping.variation),
       overrideExternalProductId: overrides[index + 2] ?? "",
     }));
   }
@@ -266,6 +288,7 @@ export function ColorVariationImporter({
 
   function chooseProduct(rowNumber: number, externalProductId: string) {
     setOverrides((current) => ({ ...current, [rowNumber]: externalProductId }));
+    setVariantOverrides((current) => ({ ...current, [rowNumber]: "" }));
     setDirty(true);
     setResult(null);
   }
@@ -278,6 +301,7 @@ export function ColorVariationImporter({
     setPreviewRows([]);
     setSummary(null);
     setOverrides({});
+    setVariantOverrides({});
     setDirty(false);
     setResult(null);
     if (clearError) setError(null);
@@ -287,7 +311,7 @@ export function ColorVariationImporter({
   if (!canSync) {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-        Conecte sua Nuvemshop em Integração para importar cores.
+        Conecte sua Nuvemshop em Integração para importar cores e SKUs.
       </div>
     );
   }
@@ -301,13 +325,13 @@ export function ColorVariationImporter({
   }
 
   return (
-    <div className="space-y-5">
+    <fieldset disabled={loading || syncing} className="min-w-0 space-y-5">
       <section className="border-y border-gray-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-semibold text-gray-900">1. Escolha a planilha</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Aceita Excel ou CSV. A coluna Cor e ao menos uma identificação do produto são necessárias.
+              Excel ou CSV · Cor e Novo SKU opcionais · Até 5.000 linhas
             </p>
           </div>
           {fileName && (
@@ -358,8 +382,8 @@ export function ColorVariationImporter({
             {(Object.keys(FIELD_LABELS) as FieldKey[]).map((field) => (
               <label key={field} className="text-xs font-medium text-gray-600">
                 {FIELD_LABELS[field]}
-                {field === "color" && <span className="text-red-600"> *</span>}
                 <select
+                  aria-label={FIELD_LABELS[field]}
                   value={mapping[field] ?? ""}
                   onChange={(event) => changeMapping(field, event.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-900"
@@ -376,7 +400,7 @@ export function ColorVariationImporter({
           </div>
           {!canAnalyze && (
             <p className="mt-3 text-xs text-amber-700">
-              Escolha a coluna Cor e pelo menos Nome, ID ou SKU do produto.
+              Selecione Cor ou Novo SKU e uma identificação do produto ou da variação.
             </p>
           )}
           <button
@@ -395,7 +419,7 @@ export function ColorVariationImporter({
           <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Stat label="Linhas" value={summary.total} />
             <Stat label="Prontas" value={summary.ready} tone="green" />
-            <Stat label="Ignoradas com Cor" value={summary.unchanged} />
+            <Stat label="Sem alterações" value={summary.unchanged} />
             <Stat label="Precisam de revisão" value={summary.review} tone="amber" />
             <Stat label="Bloqueadas" value={summary.blocked} tone="red" />
           </section>
@@ -443,13 +467,22 @@ export function ColorVariationImporter({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] text-left text-sm">
+              <table className="w-full min-w-[1260px] table-fixed text-left text-sm">
+                <colgroup>
+                  <col className="w-14" />
+                  <col className="w-56" />
+                  <col className="w-72" />
+                  <col className="w-28" />
+                  <col className="w-72" />
+                  <col className="w-72" />
+                </colgroup>
                 <thead className="bg-gray-50 text-xs text-gray-500">
                   <tr>
                     <th className="px-4 py-2.5 font-medium">Linha</th>
                     <th className="px-4 py-2.5 font-medium">Na planilha</th>
                     <th className="px-4 py-2.5 font-medium">Produto encontrado</th>
                     <th className="px-4 py-2.5 font-medium">Cor</th>
+                    <th className="px-4 py-2.5 font-medium">Variação / SKU</th>
                     <th className="px-4 py-2.5 font-medium">Situação</th>
                   </tr>
                 </thead>
@@ -477,7 +510,33 @@ export function ColorVariationImporter({
                           onSelect={(id) => chooseProduct(row.rowNumber, id)}
                         />
                       </td>
-                      <td className="px-4 py-3 font-semibold text-gray-900">{row.color || "-"}</td>
+                      <td className="break-words px-4 py-3 font-semibold text-gray-900">{row.color || "-"}</td>
+                      <td className="min-w-60 max-w-80 px-4 py-3">
+                        {row.newSku ? (
+                          <>
+                            <select
+                              aria-label={`Variação da linha ${row.rowNumber}`}
+                              value={variantOverrides[row.rowNumber] ?? row.variantExternalId ?? ""}
+                              disabled={Boolean(overrides[row.rowNumber] && overrides[row.rowNumber] !== row.productExternalId)}
+                              onChange={(event) => {
+                                setVariantOverrides((current) => ({ ...current, [row.rowNumber]: event.target.value }));
+                                setDirty(true);
+                                setResult(null);
+                              }}
+                              className="w-full max-w-72 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs"
+                            >
+                              <option value="">Escolha uma variação</option>
+                              {row.variantOptions.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label} (ID {option.id})
+                                </option>
+                              ))}
+                            </select>
+                            <div className="mt-2 break-all text-xs text-gray-500">Atual: {row.currentSku || "Sem SKU"}</div>
+                            <div className="mt-1 break-all text-xs font-semibold text-gray-900">Novo: {row.newSku}</div>
+                          </>
+                        ) : <span className="text-xs text-gray-500">Sem alteração de SKU</span>}
+                      </td>
                       <td className="max-w-80 px-4 py-3">
                         <StatusBadge status={row.status} />
                         <div className="mt-1.5 text-xs leading-5 text-gray-600">{row.message}</div>
@@ -527,7 +586,7 @@ export function ColorVariationImporter({
               <div>
                 <h2 className="font-semibold text-gray-900">4. Sincronize com a Nuvemshop</h2>
                 <p className="mt-1 text-sm text-gray-500">
-                  Serão atualizados {summary.ready} produto{summary.ready === 1 ? "" : "s"}. Preço, estoque e SKU serão preservados.
+                  {summary.ready} linha{summary.ready === 1 ? "" : "s"} pronta{summary.ready === 1 ? "" : "s"} para sincronizar.
                 </p>
               </div>
               <button
@@ -538,7 +597,7 @@ export function ColorVariationImporter({
               >
                 {syncing
                   ? `Sincronizando ${syncProgress.done} de ${syncProgress.total}...`
-                  : `Sincronizar ${summary.ready} produto${summary.ready === 1 ? "" : "s"}`}
+                  : `Sincronizar ${summary.ready} linha${summary.ready === 1 ? "" : "s"}`}
               </button>
             </div>
           </section>
@@ -552,7 +611,7 @@ export function ColorVariationImporter({
           {error}
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }
 
@@ -709,7 +768,7 @@ function SyncFeedback({
   result: SyncResult;
   onReset: () => void;
 }) {
-  const failed = result.results.filter((item) => item.status === "error");
+  const failed = result.results.filter((item) => item.status === "error" || item.status === "skipped");
   return (
     <section
       className={clsx(
@@ -718,11 +777,13 @@ function SyncFeedback({
       )}
     >
       <h2 className="font-semibold text-gray-950">
-        {failed.length ? "Sincronização concluída com pendências" : "Cores sincronizadas"}
+        {failed.length ? "Sincronização concluída com pendências" : "Sincronização concluída"}
       </h2>
       <p className="mt-1 text-sm text-gray-700">
-        {result.summary.updated} produto{result.summary.updated === 1 ? "" : "s"} atualizado{result.summary.updated === 1 ? "" : "s"}
+        {result.summary.updated} linha{result.summary.updated === 1 ? "" : "s"} atualizada{result.summary.updated === 1 ? "" : "s"}
         {result.summary.errors > 0 ? ` e ${result.summary.errors} com erro.` : "."}
+        {result.summary.skipped > 0 ? ` ${result.summary.skipped} não sincronizada(s).` : ""}
+        {result.summary.unchanged > 0 ? ` ${result.summary.unchanged} sem alterações.` : ""}
       </p>
       {failed.length > 0 && (
         <ul className="mt-3 space-y-1 text-sm text-red-700">
@@ -751,13 +812,7 @@ function guessMapping(headers: string[]): Partial<Record<FieldKey, string>> {
     const exact = normalized.find((header) =>
       aliases.some((alias) => header.value === normalizeText(alias))
     );
-    const partial = normalized.find((header) =>
-      aliases.some((alias) => {
-        const normalizedAlias = normalizeText(alias);
-        return header.value.includes(normalizedAlias) || normalizedAlias.includes(header.value);
-      })
-    );
-    if (exact ?? partial) result[field] = (exact ?? partial)?.raw;
+    if (exact) result[field] = exact.raw;
   }
   return result;
 }

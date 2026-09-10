@@ -61,7 +61,7 @@ export default async function ProductsPage({
             href="/products/colors"
             className="border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50"
           >
-            Importar cores
+            Importar cores e SKUs
           </Link>
           <a
             href="/api/products/export"

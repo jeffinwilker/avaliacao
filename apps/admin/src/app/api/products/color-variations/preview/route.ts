@@ -76,6 +76,9 @@ function parseRows(value: unknown): ColorImportInput[] {
       externalProductId: asString(row.externalProductId),
       sku: asString(row.sku),
       color: asString(row.color),
+      newSku: asString(row.newSku),
+      variantId: asString(row.variantId),
+      variation: asString(row.variation),
       overrideExternalProductId: asString(row.overrideExternalProductId),
     };
   });

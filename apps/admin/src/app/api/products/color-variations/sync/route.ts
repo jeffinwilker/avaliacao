@@ -1,10 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import {
-  fetchAllProducts,
-  setProductColorVariation,
-} from "@/lib/nuvemshop";
+import { fetchAllProducts } from "@/lib/nuvemshop";
+import { syncProductImportRow } from "@/lib/product-variation-sync";
 import {
   buildColorImportPreview,
   type ColorImportInput,
@@ -25,6 +23,9 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = (await req.json().catch(() => null)) as SyncBody | null;
+  if (Array.isArray(body?.rows) && body.rows.length > MAX_SYNC_ROWS) {
+    return NextResponse.json({ error: "Sincronize no máximo 25 linhas por lote." }, { status: 400 });
+  }
   const storeId = typeof body?.storeId === "string" ? body.storeId : "";
   const rows = parseRows(body?.rows);
   if (!storeId) {
@@ -84,14 +85,13 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        await setProductColorVariation(
+        const message = await syncProductImportRow(
           store.external_store_id,
           store.access_token,
           product,
-          row.color,
-          row.colorAttributeIndex
+          row
         );
-        results.push(resultFromRow(row, "updated", "Cor sincronizada."));
+        results.push(resultFromRow(row, "updated", message));
       } catch (caught) {
         results.push(resultFromRow(row, "error", friendlyUpdateError(caught)));
       }
@@ -126,6 +126,9 @@ function parseRows(value: unknown): ColorImportInput[] {
       externalProductId: explicitId,
       sku: asString(row.sku),
       color: asString(row.color),
+      newSku: asString(row.newSku),
+      variantId: asString(row.variantId),
+      variation: asString(row.variation),
       overrideExternalProductId: explicitId,
     };
   });
@@ -141,6 +144,8 @@ function resultFromRow(
     productExternalId: row.productExternalId,
     productName: row.matchedProductName,
     color: row.color,
+    newSku: row.newSku,
+    variantExternalId: row.variantExternalId,
     status,
     message,
   };
@@ -161,7 +166,7 @@ function friendlyUpdateError(error: unknown): string {
     return "A Nuvemshop limitou as atualizações por alguns instantes. Tente novamente em um minuto.";
   }
   if (message.includes(" 422 ")) {
-    return "A Nuvemshop recusou a combinação de variações deste produto. Revise as variações diretamente na loja.";
+    return `A Nuvemshop recusou a atualização. Revise o SKU e as variações na loja. ${message.includes("Cor salva.") ? "Cor salva; SKU pendente." : ""}`;
   }
   return message;
 }

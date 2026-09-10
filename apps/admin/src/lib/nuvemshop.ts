@@ -371,6 +371,17 @@ export async function updateVariant(
   );
 }
 
+export async function setVariantSku(
+  storeId: string,
+  token: string,
+  productId: number,
+  variantId: number,
+  sku: string
+): Promise<void> {
+  await request<NuvemshopVariant>("PUT", storeId, token,
+    `/products/${productId}/variants/${variantId}`, { body: { sku } });
+}
+
 /**
  * Define uma cor para todas as variantes existentes do produto sem alterar
  * preço, estoque, SKU ou dimensões. Quando Cor ainda não existe, produto e

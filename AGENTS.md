@@ -48,11 +48,12 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - O widget de Reels usa a URL pública atual do R2 junto do `storage_path`, então
   corrige automaticamente vídeos salvos antes de uma troca de `R2_PUBLIC_URL`.
   O modal funciona como Stories, sem controles nativos e com progresso no topo.
-- A página `/products/colors` importa XLSX/CSV com nome, ID ou SKU e uma coluna
-  de cor. Ela mostra uma prévia, permite corrigir o produto encontrado e grava
-  `Cor` como variação real na Nuvemshop, em lotes, sem alterar preço, estoque,
-  SKU ou dimensões. Produtos que já possuem a variação `Cor` são ignorados. Não
-  usa migration e exige `read_products`/`write_products`.
+- A página `/products/colors` importa XLSX/CSV com Cor e/ou Novo SKU. O modelo
+  consulta a Nuvemshop e traz uma linha por variação com IDs, opções e SKU atual.
+  A prévia permite corrigir produto e variação. Cor existente é ignorada, mas o
+  SKU ainda pode ser atualizado. Novo SKU vazio preserva o código; conflitos e
+  códigos usados por outras variações são bloqueados. Preço, estoque e dimensões
+  são preservados. Não usa migration e exige `read_products`/`write_products`.
 - A migration `0018_fix_automation_message_sequence_constraint.sql` foi criada e
   ainda precisa ser executada em produção. Ela remove a restrição legada que
   impedia mais de uma etapa por carrinho e reinicia o corte das rotinas ativas
@@ -203,13 +204,17 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
 - OAuth (`/api/nuvemshop/callback`) **ou** conexão manual (colar token).
 - Sync de produtos (`/api/nuvemshop/sync-products`): nome, descrição, galeria, preço,
   promo, estoque, variant_id, **peso e dimensões**.
-- **Importação de cores** (`/products/colors`): aceita XLSX/CSV com produto por
+- **Importação de cores e SKUs** (`/products/colors`): aceita XLSX/CSV com produto por
   nome, ID ou SKU e uma coluna Cor. Antes de gravar, mostra uma prévia com matching
   e permite trocar o produto encontrado. Cria a variação real `Cor` somente quando
   ela ainda não existe, preservando preço, estoque, SKU, peso, dimensões e variações
   existentes. Trabalha com uma cor por produto; ignora qualquer produto que já tenha
   a variação `Cor` e bloqueia conflitos e o limite
-  de três atributos da Nuvemshop. Há um modelo preenchível na própria tela.
+  de três atributos da Nuvemshop. Novo SKU é opcional e identifica a variação pelo
+  ID, pelas opções exatas ou pelo SKU atual; produto com variação única também é
+  aceito. A seleção manual fica na prévia. O modelo lista todas as variações da
+  Nuvemshop. Sincronização de SKU usa `PUT /products/{id}/variants/{variant_id}`
+  com apenas `sku`. Testes: `node --test scripts/product-variation-import.test.cjs`.
 - A confirmação de entrega (`tracking_delivered`) cria `review_requests` com delay
   padrão de um dia.
 

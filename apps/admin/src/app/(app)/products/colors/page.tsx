@@ -47,19 +47,15 @@ export default async function ProductColorsPage() {
             <Link href="/products" className="hover:text-gray-900 hover:underline">
               Produtos
             </Link>{" "}
-            / Importar cores
+            / Importar cores e SKUs
           </div>
-          <h1 className="text-2xl font-bold">Importar cores dos produtos</h1>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500">
-            Envie sua planilha, confira os produtos encontrados e crie a variação
-            Cor na Nuvemshop.
-          </p>
+          <h1 className="text-2xl font-bold">Importar cores e SKUs</h1>
         </div>
         <a
           href="/api/products/color-variations/template"
           className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
-          Baixar modelo preenchível
+          Baixar modelo com variações
         </a>
       </div>
 

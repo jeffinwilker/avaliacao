@@ -3,7 +3,7 @@ import {
   findMatchesFast,
   normalize,
 } from "@/lib/match";
-import type { NuvemshopProduct } from "@/lib/nuvemshop";
+import type { NuvemshopProduct, NuvemshopVariant } from "@/lib/nuvemshop";
 
 export const MAX_COLOR_IMPORT_ROWS = 5000;
 
@@ -13,6 +13,9 @@ export interface ColorImportInput {
   externalProductId: string;
   sku: string;
   color: string;
+  newSku?: string;
+  variantId?: string;
+  variation?: string;
   overrideExternalProductId?: string;
 }
 
@@ -41,6 +44,12 @@ export interface ColorPreviewRow extends ColorImportInput {
   currentColors: string[];
   colorAttributeIndex: number;
   candidates: ColorPreviewCandidate[];
+  variantExternalId: string | null;
+  variantLabel: string;
+  currentSku: string;
+  variantOptions: Array<{ id: string; label: string; sku: string }>;
+  updateColor: boolean;
+  updateSku: boolean;
 }
 
 interface ProductSafety {
@@ -66,14 +75,18 @@ export function buildColorImportPreview(
 
   const rows = inputRows.slice(0, MAX_COLOR_IMPORT_ROWS).map((input) => {
     const clean = sanitizeInput(input);
-    if (!clean.color) {
-      return previewWithoutProduct(clean, "blocked", "A cor está vazia.");
+    if (!clean.color && !clean.newSku) {
+      return previewWithoutProduct(clean, "unchanged", "Linha ignorada: Cor e Novo SKU estão vazios.");
+    }
+    if ((clean.newSku?.length ?? 0) > 160 || /[\u0000-\u001f\u007f]/.test(clean.newSku ?? "")) {
+      return previewWithoutProduct(clean, "blocked", "Novo SKU inválido: use até 160 caracteres, sem quebras de linha.");
     }
 
     if (
       !clean.overrideExternalProductId &&
       !clean.externalProductId &&
       !clean.sku &&
+      !clean.variantId &&
       !clean.productName
     ) {
       return previewWithoutProduct(
@@ -96,6 +109,14 @@ export function buildColorImportPreview(
     }
 
     const safety = analyzeProductColor(match.product);
+    const skuSafety = analyzeSku(clean, match.product, indexes);
+    const updateColor = Boolean(clean.color) && safety.status === "ready";
+    const updateSku = Boolean(clean.newSku) && skuSafety.status === "ready";
+    const status: ColorPreviewStatus = clean.newSku && (skuSafety.status === "review" || skuSafety.status === "blocked")
+      ? skuSafety.status
+      : clean.color && safety.status === "blocked"
+        ? "blocked"
+        : updateColor || updateSku ? "ready" : "unchanged";
     const fuzzyPrefix =
       match.method === "similar"
         ? `Encontrado por nome semelhante (${Math.round(match.score * 100)}%). `
@@ -107,11 +128,19 @@ export function buildColorImportPreview(
       productImageUrl: match.product.images?.[0]?.src ?? null,
       matchMethod: match.method,
       matchScore: match.score,
-      status: safety.status,
-      message: `${fuzzyPrefix}${safety.message}`,
+      status,
+      message: `${fuzzyPrefix}${[clean.color && safety.message, clean.newSku && skuSafety.message].filter(Boolean).join(" ")}`,
       currentColors: safety.currentColors,
       colorAttributeIndex: safety.colorAttributeIndex,
       candidates: match.candidates,
+      variantExternalId: skuSafety.variant ? String(skuSafety.variant.id) : null,
+      variantLabel: skuSafety.variant ? variantName(match.product, skuSafety.variant) : "",
+      currentSku: skuSafety.variant?.sku ?? "",
+      variantOptions: (match.product.variants ?? []).map((variant) => ({
+        id: String(variant.id), label: variantName(match.product!, variant), sku: variant.sku ?? "",
+      })),
+      updateColor,
+      updateSku,
     };
   });
 
@@ -138,8 +167,8 @@ export function analyzeProductColor(
     return {
       status: "unchanged",
       message: currentColors.length
-        ? `Ignorado: o produto já possui a variação Cor (${currentColors.join(", ")}).`
-        : "Ignorado: o produto já possui a variação Cor.",
+        ? `Cor ignorada: o produto já possui essa variação (${currentColors.join(", ")}).`
+        : "Cor ignorada: o produto já possui essa variação.",
       currentColors,
       colorAttributeIndex,
     };
@@ -188,6 +217,39 @@ export function analyzeProductColor(
   };
 }
 
+export function variantName(product: NuvemshopProduct, variant: NuvemshopVariant): string {
+  return (variant.values ?? []).map((value, index) => {
+    const attribute = translationText(product.attributes?.[index]);
+    return [attribute, translationText(value)].filter(Boolean).join(": ");
+  }).join(" / ") || "Variação única";
+}
+
+function analyzeSku(input: ColorImportInput, product: NuvemshopProduct, indexes: ReturnType<typeof buildProductIndexes>) {
+  const variants = product.variants ?? [];
+  let matches = variants;
+  if (input.variantId) {
+    matches = variants.filter((variant) => String(variant.id) === normalizeNumericId(input.variantId!));
+  } else if (input.variation) {
+    matches = variants.filter((variant) =>
+      normalize(variantName(product, variant)) === normalize(input.variation!) ||
+      normalize((variant.values ?? []).map(translationText).join(" / ")) === normalize(input.variation!)
+    );
+  } else if (input.sku) {
+    matches = variants.filter((variant) => normalizeIdentifier(variant.sku ?? "") === normalizeIdentifier(input.sku));
+  }
+  const variant = matches.length === 1 ? matches[0] : null;
+  if (!variant) {
+    return { status: "review" as const, variant, message: "Escolha a variação pelo ID, pelas opções ou pelo SKU atual." };
+  }
+  const owners = indexes.skuOwners.get(normalizeIdentifier(input.newSku ?? "")) ?? [];
+  if (owners.some((owner) => owner.productId !== product.id || owner.variantId !== variant.id)) {
+    return { status: "blocked" as const, variant, message: "O novo SKU já pertence a outra variação na Nuvemshop." };
+  }
+  return (variant.sku ?? "") === input.newSku
+    ? { status: "unchanged" as const, variant, message: "O SKU já está cadastrado nesta variação." }
+    : { status: "ready" as const, variant, message: "SKU pronto para atualizar." };
+}
+
 export function productName(product: NuvemshopProduct): string {
   return translationText(product.name) || `Produto ${product.id}`;
 }
@@ -203,36 +265,46 @@ function buildProductIndexes(products: NuvemshopProduct[]) {
   const byId = new Map(products.map((product) => [String(product.id), product]));
   const byName = new Map<string, NuvemshopProduct[]>();
   const bySku = new Map<string, NuvemshopProduct[]>();
+  const byVariantId = new Map<string, NuvemshopProduct>();
+  const skuOwners = new Map<string, Array<{ productId: number; variantId: number }>>();
 
   for (const product of products) {
     const nameKey = normalize(productName(product));
     if (nameKey) byName.set(nameKey, [...(byName.get(nameKey) ?? []), product]);
     for (const variant of product.variants ?? []) {
+      byVariantId.set(String(variant.id), product);
       const skuKey = normalizeIdentifier(variant.sku ?? "");
-      if (skuKey) bySku.set(skuKey, [...(bySku.get(skuKey) ?? []), product]);
+      if (skuKey) {
+        bySku.set(skuKey, [...(bySku.get(skuKey) ?? []), product]);
+        skuOwners.set(skuKey, [...(skuOwners.get(skuKey) ?? []), { productId: product.id, variantId: variant.id }]);
+      }
     }
   }
 
   const catalog = buildCatalog(
     products.map((product) => ({ id: String(product.id), name: productName(product) }))
   );
-  return { products, byId, byName, bySku, catalog };
+  return { products, byId, byName, bySku, byVariantId, skuOwners, catalog };
 }
 
 function matchProduct(
   input: ColorImportInput,
   indexes: ReturnType<typeof buildProductIndexes>
 ): ProductMatch {
-  const override = input.overrideExternalProductId
-    ? indexes.byId.get(input.overrideExternalProductId)
-    : null;
-  if (override) return matched(override, "override", 1, indexes);
-
-  const byId = input.externalProductId
-    ? indexes.byId.get(normalizeNumericId(input.externalProductId))
-    : null;
-  if (byId) return matched(byId, "id", 1, indexes);
-
+  // Explicit IDs must never fall back to a different product by name or SKU.
+  const explicitId = input.overrideExternalProductId || input.externalProductId;
+  if (explicitId) {
+    const product = indexes.byId.get(normalizeNumericId(explicitId));
+    return product
+      ? matched(product, input.overrideExternalProductId ? "override" : "id", 1, indexes)
+      : { product: null, method: null, score: 0, candidates: [], ambiguousMessage: "ID do produto não encontrado na Nuvemshop." };
+  }
+  if (input.variantId) {
+    const product = indexes.byVariantId.get(normalizeNumericId(input.variantId));
+    return product
+      ? matched(product, "id", 1, indexes)
+      : { product: null, method: null, score: 0, candidates: [], ambiguousMessage: "ID da variação não encontrado na Nuvemshop." };
+  }
   if (input.sku) {
     const skuMatches = dedupeProducts(
       indexes.bySku.get(normalizeIdentifier(input.sku)) ?? []
@@ -350,7 +422,8 @@ function markSpreadsheetConflicts(rows: ColorPreviewRow[]) {
   }
 
   for (const productRows of byProduct.values()) {
-    const distinctColors = new Set(productRows.map((row) => normalize(row.color)));
+    const colorRows = productRows.filter((row) => row.updateColor);
+    const distinctColors = new Set(colorRows.map((row) => normalize(row.color)));
     if (distinctColors.size > 1) {
       for (const row of productRows) {
         row.status = "blocked";
@@ -360,17 +433,54 @@ function markSpreadsheetConflicts(rows: ColorPreviewRow[]) {
       continue;
     }
 
-    const actionable = productRows.filter((row) => row.status === "ready");
+    const actionable = productRows.filter((row) => row.status === "ready" && !row.newSku);
     for (const duplicate of actionable.slice(1)) {
       duplicate.status = "duplicate";
       duplicate.message = "Linha repetida; somente a primeira será sincronizada.";
+    }
+  }
+
+  const byTarget = new Map<string, ColorPreviewRow[]>();
+  const byNewSku = new Map<string, ColorPreviewRow[]>();
+  for (const row of rows) {
+    if (!row.newSku || !row.productExternalId || !row.variantExternalId) continue;
+    const target = `${row.productExternalId}:${row.variantExternalId}`;
+    byTarget.set(target, [...(byTarget.get(target) ?? []), row]);
+    const skuKey = normalizeIdentifier(row.newSku);
+    byNewSku.set(skuKey, [...(byNewSku.get(skuKey) ?? []), row]);
+  }
+  for (const targetRows of byTarget.values()) {
+    if (new Set(targetRows.map((row) => row.newSku)).size > 1) {
+      for (const row of targetRows) {
+        row.status = "blocked";
+        row.message = "A mesma variação recebeu SKUs diferentes na planilha.";
+      }
+    } else {
+      // An identical SKU row can still carry a distinct, valid color operation.
+      const seen = new Set<string>();
+      for (const row of targetRows.filter((item) => item.status === "ready")) {
+        const key = row.updateColor ? normalize(row.color) : "";
+        if (seen.has(key)) {
+          row.status = "duplicate";
+          row.message = "Linha repetida; somente a primeira será sincronizada.";
+        }
+        seen.add(key);
+      }
+    }
+  }
+  for (const skuRows of byNewSku.values()) {
+    if (new Set(skuRows.map((row) => `${row.productExternalId}:${row.variantExternalId}`)).size > 1) {
+      for (const row of skuRows) {
+        row.status = "blocked";
+        row.message = "O mesmo novo SKU foi informado para variações diferentes na planilha.";
+      }
     }
   }
 }
 
 function previewWithoutProduct(
   input: ColorImportInput,
-  status: "review" | "blocked",
+  status: "review" | "blocked" | "unchanged",
   message: string
 ): ColorPreviewRow {
   return {
@@ -385,6 +495,12 @@ function previewWithoutProduct(
     currentColors: [],
     colorAttributeIndex: -1,
     candidates: [],
+    variantExternalId: null,
+    variantLabel: "",
+    currentSku: "",
+    variantOptions: [],
+    updateColor: false,
+    updateSku: false,
   };
 }
 
@@ -395,6 +511,9 @@ function sanitizeInput(input: ColorImportInput): ColorImportInput {
     externalProductId: cleanText(input.externalProductId, 80),
     sku: cleanText(input.sku, 160),
     color: cleanText(input.color, 120),
+    newSku: typeof input.newSku === "string" ? input.newSku.trim() : "",
+    variantId: cleanText(input.variantId, 80),
+    variation: cleanText(input.variation, 500),
     overrideExternalProductId: cleanText(input.overrideExternalProductId ?? "", 80),
   };
 }
@@ -408,8 +527,7 @@ function normalizeIdentifier(value: string): string {
 }
 
 function normalizeNumericId(value: string): string {
-  const match = value.trim().match(/\d+/);
-  return match?.[0] ?? value.trim();
+  return /^\d+$/.test(value.trim()) ? value.trim().replace(/^0+(?=\d)/, "") : "";
 }
 
 function isColorAttribute(value: string): boolean {
