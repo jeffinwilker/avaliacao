@@ -17,6 +17,7 @@ export interface NuvemshopVariant {
   depth?: string | null;
   width?: string | null;
   height?: string | null;
+  values?: Array<Record<string, string>>;
 }
 
 export interface NuvemshopProduct {
@@ -26,6 +27,7 @@ export interface NuvemshopProduct {
   handle?: { pt?: string; es?: string; en?: string };
   images?: Array<{ src: string }>;
   variants?: NuvemshopVariant[];
+  attributes?: Array<Record<string, string>>;
   canonical_url?: string;
 }
 
@@ -168,20 +170,31 @@ async function request<T>(
       url.searchParams.set(k, String(v))
     );
   }
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authentication: `bearer ${token}`,
-      "User-Agent": UA,
-      ...(init?.body ? { "content-type": "application/json" } : {}),
-    },
-    body: init?.body ? JSON.stringify(init.body) : undefined,
-  });
-  if (!res.ok) {
-    throw new Error(`Nuvemshop API ${res.status} ${method} ${path}: ${await res.text()}`);
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authentication: `bearer ${token}`,
+        "User-Agent": UA,
+        ...(init?.body ? { "content-type": "application/json" } : {}),
+      },
+      body: init?.body ? JSON.stringify(init.body) : undefined,
+    });
+    if (res.status === 429 && attempt < 3) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(10_000, retryAfter * 1000)
+        : 500 * 2 ** attempt;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      continue;
+    }
+    if (!res.ok) {
+      throw new Error(`Nuvemshop API ${res.status} ${method} ${path}: ${await res.text()}`);
+    }
+    if (res.status === 204) return undefined as T;
+    return res.json() as Promise<T>;
   }
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  throw new Error(`Nuvemshop API 429 ${method} ${path}: limite de requisições`);
 }
 
 // ============================ PRODUCTS ============================
@@ -198,7 +211,7 @@ export async function fetchAllProducts(
       params: {
         page,
         per_page: perPage,
-        fields: "id,name,description,handle,images,variants,canonical_url",
+        fields: "id,name,description,handle,images,variants,attributes,canonical_url",
       },
     });
     if (batch.length === 0) break;
@@ -355,6 +368,54 @@ export async function updateVariant(
     token,
     `/products/${productId}/variants/${variantId}`,
     { body }
+  );
+}
+
+/**
+ * Define uma cor para todas as variantes existentes do produto sem alterar
+ * preço, estoque, SKU ou dimensões. Quando Cor ainda não existe, produto e
+ * variantes são atualizados juntos para manter a quantidade de valores válida.
+ */
+export async function setProductColorVariation(
+  storeId: string,
+  token: string,
+  product: NuvemshopProduct,
+  color: string,
+  colorAttributeIndex: number
+): Promise<void> {
+  const variants = product.variants ?? [];
+
+  if (colorAttributeIndex >= 0) {
+    await request<NuvemshopVariant[]>(
+      "PATCH",
+      storeId,
+      token,
+      `/products/${product.id}/variants`,
+      {
+        body: variants.map((variant) => {
+          const values = [...(variant.values ?? [])];
+          values[colorAttributeIndex] = { pt: color };
+          return { id: variant.id, values };
+        }),
+      }
+    );
+    return;
+  }
+
+  await request<NuvemshopProduct>(
+    "PUT",
+    storeId,
+    token,
+    `/products/${product.id}`,
+    {
+      body: {
+        attributes: [...(product.attributes ?? []), { pt: "Cor" }],
+        variants: variants.map((variant) => ({
+          id: variant.id,
+          values: [...(variant.values ?? []), { pt: color }],
+        })),
+      },
+    }
   );
 }
 

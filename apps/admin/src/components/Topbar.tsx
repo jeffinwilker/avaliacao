@@ -19,6 +19,7 @@ const sectionTitles = [
   { path: "/automations", title: "Automações", group: "Automações" },
   { path: "/reviews", title: "Avaliações", group: "Gestão" },
   { path: "/kits", title: "Kits de produtos", group: "Gestão" },
+  { path: "/products/colors", title: "Importar cores", group: "Gestão" },
   { path: "/products", title: "Produtos", group: "Gestão" },
   { path: "/customers", title: "Clientes", group: "Gestão" },
   { path: "/reels", title: "Reels dos produtos", group: "Gestão" },

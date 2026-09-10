@@ -57,6 +57,12 @@ export default async function ProductsPage({
           </p>
         </div>
         <div className="flex gap-2">
+          <Link
+            href="/products/colors"
+            className="border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50"
+          >
+            Importar cores
+          </Link>
           <a
             href="/api/products/export"
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-white inline-flex items-center gap-2"

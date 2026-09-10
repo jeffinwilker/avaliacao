@@ -48,6 +48,10 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - O widget de Reels usa a URL pública atual do R2 junto do `storage_path`, então
   corrige automaticamente vídeos salvos antes de uma troca de `R2_PUBLIC_URL`.
   O modal funciona como Stories, sem controles nativos e com progresso no topo.
+- A página `/products/colors` importa XLSX/CSV com nome, ID ou SKU e uma coluna
+  de cor. Ela mostra uma prévia, permite corrigir o produto encontrado e grava
+  `Cor` como variação real na Nuvemshop, em lotes, sem alterar preço, estoque,
+  SKU ou dimensões. Não usa migration e exige `read_products`/`write_products`.
 - A migration `0018_fix_automation_message_sequence_constraint.sql` foi criada e
   ainda precisa ser executada em produção. Ela remove a restrição legada que
   impedia mais de uma etapa por carrinho e reinicia o corte das rotinas ativas
@@ -198,6 +202,12 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
 - OAuth (`/api/nuvemshop/callback`) **ou** conexão manual (colar token).
 - Sync de produtos (`/api/nuvemshop/sync-products`): nome, descrição, galeria, preço,
   promo, estoque, variant_id, **peso e dimensões**.
+- **Importação de cores** (`/products/colors`): aceita XLSX/CSV com produto por
+  nome, ID ou SKU e uma coluna Cor. Antes de gravar, mostra uma prévia com matching
+  e permite trocar o produto encontrado. Cria ou atualiza a variação real `Cor`
+  preservando preço, estoque, SKU, peso, dimensões e variações existentes. Trabalha
+  com uma cor por produto; bloqueia conflitos, produtos já multicoloridos e o limite
+  de três atributos da Nuvemshop. Há um modelo preenchível na própria tela.
 - A confirmação de entrega (`tracking_delivered`) cria `review_requests` com delay
   padrão de um dia.
 
@@ -422,6 +432,7 @@ Um único `<script>` cuida de todos os blocos. Cole os `<div>` onde quiser:
 Admin (autenticados via Supabase Auth):
 `/api/reviews/[id]` (PATCH moderar), `/api/reviews/[id]/reply`, `/api/settings`,
 `/api/products/list|count|export|details`, `/api/import/reviews|template`,
+`/api/products/color-variations/preview|sync|template`,
 `/api/kits` (GET/POST), `/api/kits/[id]` (GET/PUT/DELETE), `/api/kits/[id]/sync`,
 `/api/kits/[id]/duplicate`, `/api/kits/upload-image`,
 `/api/automations/run` (POST — dispara o cron manualmente),
