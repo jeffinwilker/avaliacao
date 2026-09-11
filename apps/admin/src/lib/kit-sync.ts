@@ -44,7 +44,7 @@ export async function syncKitToNuvemshop(
   const { data: kit } = await admin
     .from("kits")
     .select(
-      `id, name, description, images, active, original_price, final_price,
+      `id, name, description, images, active, source, original_price, final_price,
        dimension_rule, weight, depth, width, height,
        nuvemshop_product_id, nuvemshop_variant_id,
        items:kit_items (
@@ -55,6 +55,12 @@ export async function syncKitToNuvemshop(
     .eq("id", kitId)
     .maybeSingle();
   if (!kit) return { ok: false, error: "Kit não encontrado" };
+  if (kit.source === "nuvemshop_native") {
+    return {
+      ok: false,
+      error: "Kits nativos são gerenciados pela Nuvemshop.",
+    };
+  }
 
   const storeId = store.external_store_id as string;
   const token = store.access_token as string;

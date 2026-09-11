@@ -51,9 +51,18 @@ export async function PUT(
   // desnecessário na Nuvemshop a cada edição de preço).
   const { data: before } = await admin
     .from("kits")
-    .select("images")
+    .select("images, source")
     .eq("id", id)
     .maybeSingle();
+  if (!before) {
+    return NextResponse.json({ error: "Kit não encontrado" }, { status: 404 });
+  }
+  if (before.source === "nuvemshop_native") {
+    return NextResponse.json(
+      { error: "Kits nativos são editados no painel da Nuvemshop." },
+      { status: 409 }
+    );
+  }
   const oldImages: string[] = Array.isArray(before?.images) ? before.images : [];
 
   const update: Record<string, unknown> = {};
@@ -155,10 +164,10 @@ export async function DELETE(
   // Remove o produto-kit da Nuvemshop antes de apagar o registro
   const { data: kit } = await admin
     .from("kits")
-    .select("nuvemshop_product_id")
+    .select("nuvemshop_product_id, source")
     .eq("id", id)
     .maybeSingle();
-  if (kit) {
+  if (kit && kit.source !== "nuvemshop_native") {
     await deleteKitProduct(admin, {
       nuvemshop_product_id: kit.nuvemshop_product_id ?? null,
     });

@@ -21,6 +21,7 @@ import {
   upsertOrderCustomer,
 } from "@/lib/customers";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { importNativeKit } from "@/lib/native-kit-import";
 
 const HANDLED_EVENTS = [
   "order/created",
@@ -31,6 +32,9 @@ const HANDLED_EVENTS = [
   "customer/created",
   "customer/updated",
   "customer/deleted",
+  "product/created",
+  "product/updated",
+  "product/deleted",
   "fulfillment_order/status_updated",
   "fulfillment_order/label_status_updated",
   "fulfillment_order/tracking_event_created",
@@ -90,6 +94,68 @@ export async function POST(req: NextRequest) {
       token: store.access_token,
       payload,
     });
+  }
+
+  if (payload.event.startsWith("product/")) {
+    const externalProductId = String(payload.id ?? "");
+    if (!externalProductId) {
+      return NextResponse.json({ error: "Product not informed" }, { status: 400 });
+    }
+
+    if (payload.event === "product/deleted") {
+      await admin
+        .from("kits")
+        .update({
+          active: false,
+          last_synced_at: new Date().toISOString(),
+          sync_error: "Kit removido na Nuvemshop",
+        })
+        .eq("store_id", store.id)
+        .eq("source", "nuvemshop_native")
+        .eq("nuvemshop_product_id", externalProductId);
+      return NextResponse.json({ ok: true });
+    }
+
+    try {
+      const kit = await importNativeKit(admin, externalProductId);
+      return NextResponse.json({ ok: true, nativeKit: kit.id });
+    } catch (error) {
+      // Produtos comuns também disparam esses webhooks. Um 404 em /kits/{id}
+      // significa que o produto pode ser um componente de algum kit importado.
+      if ((error as Error).message.includes("não é um kit nativo")) {
+        const { data: component } = await admin
+          .from("products")
+          .select("id")
+          .eq("store_id", store.id)
+          .eq("external_product_id", externalProductId)
+          .maybeSingle();
+        if (component) {
+          const { data: relatedItems } = await admin
+            .from("kit_items")
+            .select("kit_id")
+            .eq("product_id", component.id);
+          const relatedKitIds = Array.from(
+            new Set((relatedItems ?? []).map((item) => String(item.kit_id)))
+          );
+          if (relatedKitIds.length > 0) {
+            const { data: relatedKits } = await admin
+              .from("kits")
+              .select("nuvemshop_product_id")
+              .eq("store_id", store.id)
+              .eq("source", "nuvemshop_native")
+              .in("id", relatedKitIds);
+            await Promise.all(
+              (relatedKits ?? [])
+                .map((kit) => String(kit.nuvemshop_product_id ?? ""))
+                .filter(Boolean)
+                .map((kitId) => importNativeKit(admin, kitId))
+            );
+          }
+        }
+        return NextResponse.json({ ok: true, ignored: true });
+      }
+      throw error;
+    }
   }
 
   const externalOrderId = String(payload.order_id ?? payload.id ?? "");

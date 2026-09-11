@@ -26,6 +26,36 @@ export default async function EditKitPage({
 
   if (!kit) notFound();
 
+  if (kit.source === "nuvemshop_native") {
+    return (
+      <div className="p-8 max-w-3xl">
+        <div className="mb-4 text-sm text-gray-500">
+          <Link href="/kits" className="hover:underline">
+            ← Voltar para kits
+          </Link>
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-6">
+          <h1 className="text-xl font-bold text-gray-950">{kit.name}</h1>
+          <p className="mt-2 text-sm leading-6 text-blue-950">
+            Este é um kit nativo. Produtos, quantidades, desconto e estoque são
+            editados diretamente no painel da Nuvemshop. Depois, use “Atualizar
+            dados” na lista de kits.
+          </p>
+          {kit.nuvemshop_url && (
+            <a
+              href={kit.nuvemshop_url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-800"
+            >
+              Ver kit na loja ↗
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const items = ((kit.items ?? []) as Array<{
     product_id: string;
     quantity: number;

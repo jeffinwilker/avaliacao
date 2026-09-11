@@ -37,6 +37,7 @@ export interface Kit {
   originalPrice: number | null;
   finalPrice: number | null;
   active: boolean;
+  source?: "app" | "nuvemshop_native";
   lastSyncedAt: string | null;
   syncError: string | null;
   createdAt: string;
@@ -99,6 +100,7 @@ export interface WidgetKitCard {
   discountPercent: number | null;
   url: string | null; // URL pra página do kit na loja
   itemsCount: number;
+  totalUnits: number;
 }
 
 /** Item individual mostrado na página do kit ("Produtos do kit"). */
@@ -208,4 +210,3 @@ export function computeKitStock(
   }
   return min === Infinity ? null : Math.max(0, min);
 }
-

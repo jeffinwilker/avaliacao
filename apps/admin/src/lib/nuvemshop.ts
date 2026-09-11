@@ -4,7 +4,10 @@
 // ----------------------------------------------------------------------------
 
 const BASE = "https://api.tiendanube.com/v1";
+const STABLE_BASE = "https://api.tiendanube.com/2025-03";
 const UA = "Avaliacoes (contato@exemplo.com)";
+
+type NuvemshopLocalizedText = Record<string, string | undefined>;
 
 export interface NuvemshopVariant {
   id: number;
@@ -29,6 +32,33 @@ export interface NuvemshopProduct {
   variants?: NuvemshopVariant[];
   attributes?: Array<Record<string, string>>;
   canonical_url?: string;
+}
+
+export interface NuvemshopNativeKitComponent {
+  product_id: number;
+  quantity: number;
+  position: number;
+  is_deleted?: boolean;
+  name: NuvemshopLocalizedText;
+  image_url?: string | null;
+  price: number | string;
+  promotional_price?: number | string | null;
+  stock?: number | null;
+}
+
+export interface NuvemshopNativeKit {
+  id: number;
+  name: NuvemshopLocalizedText;
+  description?: NuvemshopLocalizedText;
+  handle?: NuvemshopLocalizedText;
+  invalid_at?: string | null;
+  published: boolean;
+  visibility?: "visible" | "unlisted" | "hidden";
+  canonical_url?: string | null;
+  images?: Array<{ src: string; position?: number }>;
+  discount_percent?: number | string | null;
+  components: NuvemshopNativeKitComponent[];
+  kit_stock?: number | null;
 }
 
 export interface NuvemshopOrder {
@@ -164,7 +194,18 @@ async function request<T>(
   path: string,
   init?: { params?: Record<string, string | number>; body?: unknown }
 ): Promise<T> {
-  const url = new URL(`${BASE}/${storeId}${path}`);
+  return requestAtBase<T>(BASE, method, storeId, token, path, init);
+}
+
+async function requestAtBase<T>(
+  base: string,
+  method: string,
+  storeId: string,
+  token: string,
+  path: string,
+  init?: { params?: Record<string, string | number>; body?: unknown }
+): Promise<T> {
+  const url = new URL(`${base}/${storeId}${path}`);
   if (init?.params) {
     Object.entries(init.params).forEach(([k, v]) =>
       url.searchParams.set(k, String(v))
@@ -220,6 +261,50 @@ export async function fetchAllProducts(
     page++;
   }
   return all;
+}
+
+/** Resolve o ID de um produto pelo trecho amigável da URL. */
+export async function findProductByHandle(
+  storeId: string,
+  token: string,
+  handle: string
+): Promise<NuvemshopProduct | null> {
+  const products = await request<NuvemshopProduct[]>(
+    "GET",
+    storeId,
+    token,
+    "/products",
+    {
+      params: {
+        handle,
+        per_page: 10,
+        fields: "id,name,handle,canonical_url",
+      },
+    }
+  );
+  return (
+    products.find((product) =>
+      Object.values(product.handle ?? {}).some((value) => value === handle)
+    ) ?? products[0] ?? null
+  );
+}
+
+/**
+ * Lê um kit nativo. O recurso da API 2025-03 é somente leitura; criação e
+ * edição continuam sendo feitas no painel da Nuvemshop.
+ */
+export async function fetchNativeKit(
+  storeId: string,
+  token: string,
+  productId: string | number
+): Promise<NuvemshopNativeKit> {
+  return requestAtBase<NuvemshopNativeKit>(
+    STABLE_BASE,
+    "GET",
+    storeId,
+    token,
+    `/kits/${productId}`
+  );
 }
 
 /** Cria um produto na Nuvemshop. Retorna o produto criado com ID. */

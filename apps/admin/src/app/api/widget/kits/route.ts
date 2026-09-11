@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
   const { data: kits } = await admin
     .from("kits_with_items")
     .select(
-      "id, name, image_url, original_price, final_price, nuvemshop_url, nuvemshop_product_id, active, items_count"
+      "id, name, image_url, original_price, final_price, nuvemshop_url, nuvemshop_product_id, active, items_count, total_units"
     )
     .in("id", kitIds)
     .eq("active", true);
@@ -101,7 +101,8 @@ export async function GET(req: NextRequest) {
           ? discountPercent(original, final)
           : null,
       url: kit.nuvemshop_url,
-      itemsCount: kit.items_count,
+      itemsCount: Number(kit.items_count ?? 0),
+      totalUnits: Number(kit.total_units ?? kit.items_count ?? 0),
     });
   }
 

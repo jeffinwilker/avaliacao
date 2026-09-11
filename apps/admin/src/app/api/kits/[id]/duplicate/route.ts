@@ -23,6 +23,12 @@ export async function POST(
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!kit) return NextResponse.json({ error: "Kit não encontrado" }, { status: 404 });
+  if (kit.source === "nuvemshop_native") {
+    return NextResponse.json(
+      { error: "Kits nativos são duplicados no painel da Nuvemshop." },
+      { status: 409 }
+    );
+  }
 
   const { data: items } = await admin
     .from("kit_items")

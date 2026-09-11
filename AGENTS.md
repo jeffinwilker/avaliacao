@@ -11,10 +11,20 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 > (até peso/dimensões) e as **automações de WhatsApp** (carrinho abandonado +
 > pós-venda). Fase 5 de estoque de kit via webhook ainda pendente.
 
-## 0. Estado de continuidade (09/09/2026)
+## 0. Estado de continuidade (11/09/2026)
 
 - Branch de trabalho: `main`. O último commit antes da entrega atual era
-  `ed86809`.
+  `0c611ff`.
+- A entrega atual adiciona suporte aos **kits nativos da Nuvemshop**. Como a API
+  oficial é somente leitura, o kit continua sendo criado/editado no painel da
+  Nuvemshop e depois é reconhecido em `/kits` pelo link ou ID. O aplicativo
+  espelha produtos, quantidades, preço, desconto e URL para manter o widget
+  “Compre no kit” funcionando. Kits nativos são separados dos produtos-kit
+  legados e nunca são alterados/excluídos na Nuvemshop pelas rotinas antigas.
+- A contagem dos cards do widget agora usa `total_units`: um kit formado por seis
+  unidades do mesmo produto mostra “6 unidades”, e kits mistos mostram tipos de
+  produto e total de unidades. A migration
+  `0019_native_nuvemshop_kits.sql` precisa ser executada antes deste deploy.
 - A entrega atual criou uma biblioteca central em `/automations` com automações
   ativas e pré-definidas, criação em branco por gatilho e cópia dos modelos. Os
   editores focados continuam gravando nas sequências existentes, preservando o
@@ -72,7 +82,8 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - Ao retomar: rode `git status`, `git log -5 --oneline` e leia esta seção. Não
   refaça funcionalidades já descritas como concluídas.
 - Próximo passo operacional: executar a migration `0018` no SQL Editor do
-  Supabase e atualizar o VPS com `git pull`, `npm run build` e
+  Supabase se ainda estiver pendente, executar a `0019` e atualizar o VPS com
+  `git pull`, `npm run build` e
   `pm2 startOrReload ecosystem.config.cjs --update-env`.
 
 ### Forma de trabalhar neste projeto
@@ -190,6 +201,14 @@ cd apps/admin && npx tsc --noEmit
 Modelo **A+**: o kit é criado como **produto real na Nuvemshop** (tem página própria,
 checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticamente.
 
+- **Kits nativos (recomendado):** crie/edite no painel da Nuvemshop e use
+  “Importar kit nativo” em `/kits`, colando a URL pública ou o ID. A API estável
+  `2025-03` expõe `GET /kits/{id}` como somente leitura; o sistema mantém um
+  espelho local para a recomendação reversa por produto e pode atualizar o
+  espelho pelo mesmo botão. Produtos-kit criados pelo aplicativo permanecem como
+  modo legado. Os webhooks `product/created|updated|deleted` reconhecem novos kits
+  e atualizam kits importados quando o kit ou um componente muda.
+
 - **CRUD** em `/kits` — nome, produtos incluídos (multi-select com busca), desconto
   (percent / valor fixo / preço total), galeria de imagens (upload pro Storage +
   "usar imagens dos produtos"), descrição com **editor rich-text** (WYSIWYG + código-
@@ -262,8 +281,8 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   entrega cria os pedidos de avaliação; os demais eventos enfileiram as mensagens configuradas
   para cada estado e `order/cancelled` cancela mensagens pendentes.
 - Webhooks (`order/created|paid|packed|fulfilled|cancelled`,
-  `customer/created|updated|deleted` e eventos de `fulfillment_order` para
-  status, etiqueta e rastreio) são **registrados automaticamente**
+  `customer/created|updated|deleted`, `product/created|updated|deleted` e eventos
+  de `fulfillment_order` para status, etiqueta e rastreio) são **registrados automaticamente**
   ao conectar a loja (OAuth ou manual), quando `NEXT_PUBLIC_APP_URL` é https.
 - Tudo processado por `/api/cron/send-requests` (header `x-cron-secret`): sincroniza
   carrinhos e pedidos, cria convites de entregas recentes, envia automações e
@@ -297,6 +316,7 @@ Rode as migrations **em ordem** no SQL Editor (idempotentes, usam `if not exists
 | `0016_customers.sql` | tabela `customers` para clientes importados da Nuvemshop ou cadastrados manualmente |
 | `0017_birthday_collection.sql` | configuração da coleta pós-compra de aniversário e tokens em `customer_birthdate_requests` |
 | `0018_fix_automation_message_sequence_constraint.sql` | remove a unicidade legada de uma mensagem por carrinho e preserva a unicidade por etapa |
+| `0019_native_nuvemshop_kits.sql` | identifica kits nativos importados e separa-os dos produtos-kit legados |
 
 **Storage buckets (públicos):** `review-media` (fotos/vídeos de reviews),
 `kit-media` (imagens de kit enviadas pelo lojista) e `automation-media`
@@ -447,6 +467,7 @@ Admin (autenticados via Supabase Auth):
 `/api/products/color-variations/preview|sync|template`,
 `/api/kits` (GET/POST), `/api/kits/[id]` (GET/PUT/DELETE), `/api/kits/[id]/sync`,
 `/api/kits/[id]/duplicate`, `/api/kits/upload-image`,
+`/api/kits/import-native`,
 `/api/automations/run` (POST — dispara o cron manualmente),
 `/api/automations/abandoned-cart-routine`, `/api/automations/post-sale-routine`,
 `/api/automations/abandoned-cart-manual-send`,

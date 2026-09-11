@@ -26,39 +26,57 @@ export function WidgetKit({ kits, brandColor, title }: WidgetKitProps) {
     <div className="av-root av-kit-wrap" style={style}>
       <div className="av-kit-label">{title ?? "Compre no kit e economize"}</div>
       <div className="av-kit-list">
-        {kits.map((kit) => (
-          <a
-            key={kit.id}
-            href={kit.url ?? "#"}
-            className="av-kit-card"
-            aria-label={`Ver kit ${kit.name}`}
-          >
-            {kit.imageUrl ? (
-              <img src={kit.imageUrl} alt="" className="av-kit-thumb" loading="lazy" />
-            ) : (
-              <div className="av-kit-thumb av-kit-thumb-empty" />
-            )}
-            <div className="av-kit-info">
-              <div className="av-kit-name">{kit.name}</div>
-              {kit.itemsCount > 0 && (
-                <div className="av-kit-count">
-                  {kit.itemsCount} {kit.itemsCount === 1 ? "produto" : "produtos"}
-                </div>
+        {kits.map((kit) => {
+          const totalUnits = kit.totalUnits ?? kit.itemsCount;
+          return (
+            <a
+              key={kit.id}
+              href={kit.url ?? "#"}
+              className="av-kit-card"
+              aria-label={`Ver kit ${kit.name}`}
+            >
+              {kit.imageUrl ? (
+                <img
+                  src={kit.imageUrl}
+                  alt=""
+                  className="av-kit-thumb"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="av-kit-thumb av-kit-thumb-empty" />
               )}
-              <div className="av-kit-price">
-                {kit.originalPrice && kit.discountPercent ? (
-                  <>
-                    <span className="av-kit-from">{BRL.format(kit.originalPrice)}</span>
-                    <span className="av-kit-to">{BRL.format(kit.finalPrice ?? 0)}</span>
-                    <span className="av-kit-badge">−{kit.discountPercent}%</span>
-                  </>
-                ) : kit.finalPrice ? (
-                  <span className="av-kit-to">{BRL.format(kit.finalPrice)}</span>
-                ) : null}
+              <div className="av-kit-info">
+                <div className="av-kit-name">{kit.name}</div>
+                {totalUnits > 0 && (
+                  <div className="av-kit-count">
+                    {kit.itemsCount > 1
+                      ? `${kit.itemsCount} produtos · ${totalUnits} unidades`
+                      : `${totalUnits} ${
+                          totalUnits === 1 ? "unidade" : "unidades"
+                        }`}
+                  </div>
+                )}
+                <div className="av-kit-price">
+                  {kit.originalPrice && kit.discountPercent ? (
+                    <>
+                      <span className="av-kit-from">
+                        {BRL.format(kit.originalPrice)}
+                      </span>
+                      <span className="av-kit-to">
+                        {BRL.format(kit.finalPrice ?? 0)}
+                      </span>
+                      <span className="av-kit-badge">
+                        −{kit.discountPercent}%
+                      </span>
+                    </>
+                  ) : kit.finalPrice ? (
+                    <span className="av-kit-to">{BRL.format(kit.finalPrice)}</span>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          </a>
-        ))}
+            </a>
+          );
+        })}
       </div>
     </div>
   );
