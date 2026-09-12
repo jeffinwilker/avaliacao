@@ -33,6 +33,7 @@ export interface CartMessageView {
 export interface AbandonedCartView {
   id: string;
   externalCheckoutId: string;
+  referenceLabel?: string | null;
   customerName: string;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -46,6 +47,8 @@ export interface AbandonedCartView {
   completedAt: string | null;
   messages: CartMessageView[];
 }
+
+type RecoveryKind = "abandoned_cart" | "pending_payment";
 
 const messageStatusLabels: Record<string, string> = {
   scheduled: "Agendada",
@@ -76,6 +79,7 @@ export function AbandonedCartDashboard({
   carts,
   mode = "all",
   editorMode = null,
+  recoveryKind = "abandoned_cart",
 }: {
   storeId: string;
   storeName: string;
@@ -85,6 +89,7 @@ export function AbandonedCartDashboard({
   carts: AbandonedCartView[];
   mode?: "all" | "routine" | "messages" | "orders";
   editorMode?: "edit" | "blank" | "preset" | null;
+  recoveryKind?: RecoveryKind;
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState(initialEnabled);
@@ -93,7 +98,9 @@ export function AbandonedCartDashboard({
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(
+    recoveryKind === "pending_payment" ? "pending" : "all"
+  );
   const [expandedCart, setExpandedCart] = useState<string | null>(null);
   const [manualCart, setManualCart] = useState<AbandonedCartView | null>(null);
   const [manualStepId, setManualStepId] = useState("");
@@ -105,12 +112,16 @@ export function AbandonedCartDashboard({
   const showRoutine = mode === "all" || mode === "routine";
   const showMessages = mode === "all" || mode === "messages";
   const showOrders = mode === "all" || mode === "orders";
+  const pendingPayment = recoveryKind === "pending_payment";
 
   const filteredCarts = useMemo(() => {
     const search = query.trim().toLocaleLowerCase("pt-BR");
     return carts.filter((cart) => {
-      const visibleStatus = cartDisplayStatus(cart).key;
-      const matchesStatus = statusFilter === "all" || visibleStatus === statusFilter;
+      const visibleStatus = cartDisplayStatus(cart, recoveryKind).key;
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "pending" && cart.status === "abandoned") ||
+        visibleStatus === statusFilter;
       const matchesSearch =
         !search ||
         cart.customerName.toLocaleLowerCase("pt-BR").includes(search) ||
@@ -120,7 +131,7 @@ export function AbandonedCartDashboard({
         cart.productsSummary.toLocaleLowerCase("pt-BR").includes(search);
       return matchesStatus && Boolean(matchesSearch);
     });
-  }, [carts, query, statusFilter]);
+  }, [carts, query, recoveryKind, statusFilter]);
 
   const counts = useMemo(() => ({
     abandoned: carts.filter((cart) => cart.status === "abandoned").length,
@@ -164,15 +175,25 @@ export function AbandonedCartDashboard({
     setManualSending(true);
     setManualFeedback(null);
     const res = await fetch(
-      "/api/automations/abandoned-cart-manual-send",
+      pendingPayment
+        ? "/api/automations/pending-payment-manual-send"
+        : "/api/automations/abandoned-cart-manual-send",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          storeId,
-          externalCheckoutId: manualCart.externalCheckoutId,
-          stepId: manualStepId,
-        }),
+        body: JSON.stringify(
+          pendingPayment
+            ? {
+                storeId,
+                externalOrderId: manualCart.externalCheckoutId,
+                stepId: manualStepId,
+              }
+            : {
+                storeId,
+                externalCheckoutId: manualCart.externalCheckoutId,
+                stepId: manualStepId,
+              }
+        ),
       }
     );
     const json = await res.json().catch(() => ({}));
@@ -200,7 +221,9 @@ export function AbandonedCartDashboard({
       {
         id: `step-${Date.now().toString(36)}`,
         delayMinutes: Math.min(43_200, lastDelay + 1_440),
-        messageTemplate: followUpTemplate,
+        messageTemplate: pendingPayment
+          ? `Oi {{nome}}! 😊\n\nO Pix do pedido *#{{pedido}}* ainda está pendente.\n\nAbra a página segura para tentar o pagamento novamente:\n{{link_pagamento}}\n\nSe precisar, responda esta mensagem.`
+          : followUpTemplate,
         enabled: true,
         attachmentType: "none",
         attachmentUrl: null,
@@ -223,11 +246,16 @@ export function AbandonedCartDashboard({
   async function saveRoutine() {
     setSaving(true);
     setFeedback(null);
-    const res = await fetch("/api/automations/abandoned-cart-routine", {
+    const res = await fetch(
+      pendingPayment
+        ? "/api/automations/pending-payment-routine"
+        : "/api/automations/abandoned-cart-routine",
+      {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ storeId, enabled, steps }),
-    });
+      }
+    );
     const json = await res.json().catch(() => ({}));
     setSaving(false);
     if (!res.ok) {
@@ -262,7 +290,9 @@ export function AbandonedCartDashboard({
       type: "ok",
       text: showMessages
         ? "Mensagens salvas."
-        : "Rotina salva e carrinhos atualizados.",
+        : pendingPayment
+          ? "Rotina salva e pedidos atualizados."
+          : "Rotina salva e carrinhos atualizados.",
     });
     if (editorMode) {
       router.push("/automations?section=routines");
@@ -274,8 +304,16 @@ export function AbandonedCartDashboard({
   return (
     <div className="space-y-6">
       {showOrders && <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        <SummaryCard label="Carrinhos em aberto" value={counts.abandoned} tone="amber" />
-        <SummaryCard label="Compras recuperadas" value={counts.recovered} tone="green" />
+        <SummaryCard
+          label={pendingPayment ? "Pix aguardando pagamento" : "Carrinhos em aberto"}
+          value={counts.abandoned}
+          tone="amber"
+        />
+        <SummaryCard
+          label={pendingPayment ? "Pagamentos confirmados" : "Compras recuperadas"}
+          value={counts.recovered}
+          tone="green"
+        />
         <SummaryCard label="Mensagens agendadas" value={counts.scheduled} tone="blue" />
         <SummaryCard label="Mensagens enviadas" value={counts.sent} tone="neutral" />
       </div>}
@@ -291,12 +329,20 @@ export function AbandonedCartDashboard({
             <div className="flex items-center gap-2">
               <h2 className="font-semibold text-lg">
                 {showMessages
-                  ? "Mensagens de recuperação"
+                  ? pendingPayment
+                    ? "Mensagens de Pix pendente"
+                    : "Mensagens de recuperação"
                   : editorMode === "blank"
-                    ? "Nova recuperação de carrinho"
+                    ? pendingPayment
+                      ? "Nova recuperação de Pix"
+                      : "Nova recuperação de carrinho"
                     : editorMode === "preset"
-                      ? "Modelo: recuperação de carrinho"
-                      : "Rotina de recuperação"}
+                      ? pendingPayment
+                        ? "Modelo: recuperação de Pix"
+                        : "Modelo: recuperação de carrinho"
+                      : pendingPayment
+                        ? "Rotina de pagamento pendente"
+                        : "Rotina de recuperação"}
               </h2>
               {showRoutine && (
                 <span className={`text-xs font-medium rounded-full px-2 py-1 ${enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
@@ -307,7 +353,9 @@ export function AbandonedCartDashboard({
             <p className="text-sm text-gray-500 mt-1">
               {showMessages
                 ? "Crie até 5 textos. Os horários são definidos separadamente em Rotinas."
-                : "Escolha quando cada mensagem será enviada a partir da criação do checkout."}
+                : pendingPayment
+                  ? "Escolha quando cada mensagem será enviada a partir da criação do pedido."
+                  : "Escolha quando cada mensagem será enviada a partir da criação do checkout."}
             </p>
           </div>
           {showRoutine && (
@@ -317,7 +365,9 @@ export function AbandonedCartDashboard({
 
         {showRoutine && editorMode && editorMode !== "edit" && (
           <div className="border-b border-blue-200 bg-blue-50 px-5 py-3 text-sm text-blue-900">
-            O carrinho possui um único fluxo de recuperação. Ao salvar, este fluxo substitui a rotina atual e pode conter até cinco mensagens.
+            {pendingPayment
+              ? "Os pedidos com Pix pendente possuem um único fluxo. Ao salvar, ele substitui a rotina atual e pode conter até cinco mensagens."
+              : "O carrinho possui um único fluxo de recuperação. Ao salvar, este fluxo substitui a rotina atual e pode conter até cinco mensagens."}
           </div>
         )}
 
@@ -339,6 +389,7 @@ export function AbandonedCartDashboard({
             onAddStep={addStep}
             onRemoveStep={removeStep}
             onSave={saveRoutine}
+            recoveryKind={recoveryKind}
           />
         ) : (
           <div className="space-y-4 p-5">
@@ -367,12 +418,15 @@ export function AbandonedCartDashboard({
                 <MessageEditor
                   value={step.messageTemplate}
                   onChange={(messageTemplate) => updateStep(step.id, { messageTemplate })}
-                  variables={["{{nome}}", "{{produtos}}", "{{link_carrinho}}", "{{loja}}", "{{cupom}}", "{{desconto}}"]}
+                  variables={pendingPayment
+                    ? ["{{nome}}", "{{pedido}}", "{{produtos}}", "{{link_pagamento}}", "{{loja}}", "{{cupom}}", "{{desconto}}"]
+                    : ["{{nome}}", "{{produtos}}", "{{link_carrinho}}", "{{loja}}", "{{cupom}}", "{{desconto}}"]}
                   label={`Texto da mensagem ${index + 1}`}
                   minHeight={150}
                 />
                 <CouponSettings
                   step={step}
+                  recoveryKind={recoveryKind}
                   onChange={(patch) => {
                     const nextPatch = { ...patch };
                     if (
@@ -380,7 +434,9 @@ export function AbandonedCartDashboard({
                       !step.couponEnabled &&
                       !step.messageTemplate.includes("{{cupom}}")
                     ) {
-                      nextPatch.messageTemplate = `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* e aproveite {{desconto}}. O desconto já estará aplicado ao seu carrinho.`;
+                      nextPatch.messageTemplate = pendingPayment
+                        ? `${step.messageTemplate}\n\nSe preferir refazer a compra, use o cupom *{{cupom}}* e aproveite {{desconto}}.`
+                        : `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* e aproveite {{desconto}}. O desconto já estará aplicado ao seu carrinho.`;
                     }
                     updateStep(step.id, nextPatch);
                   }}
@@ -422,15 +478,21 @@ export function AbandonedCartDashboard({
         <div className="px-5 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <h2 className="font-semibold text-lg">Carrinhos abandonados</h2>
+              <h2 className="font-semibold text-lg">
+                {pendingPayment ? "Pedidos com Pix pendente" : "Carrinhos abandonados"}
+              </h2>
               <p className="text-sm text-gray-500 mt-1">
-                A Nuvemshop mantém disponíveis os carrinhos identificados dos últimos 30 dias.
+                {pendingPayment
+                  ? "O envio só acontece enquanto a Nuvemshop confirmar que o pedido continua sem pagamento."
+                  : "A Nuvemshop mantém disponíveis os carrinhos identificados dos últimos 30 dias."}
               </p>
             </div>
             <div className="flex gap-2 flex-wrap">
               <input
                 type="search"
-                placeholder="Buscar cliente, produto ou carrinho"
+                placeholder={pendingPayment
+                  ? "Buscar cliente, produto ou pedido"
+                  : "Buscar cliente, produto ou carrinho"}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 className="w-72 max-w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -441,10 +503,11 @@ export function AbandonedCartDashboard({
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
               >
                 <option value="all">Todos os status</option>
-                <option value="recovering">Em recuperação</option>
+                {pendingPayment && <option value="pending">Pix pendentes</option>}
+                <option value="recovering">{pendingPayment ? "Em cobrança" : "Em recuperação"}</option>
                 <option value="waiting">Aguardando</option>
                 <option value="no_phone">Sem WhatsApp</option>
-                <option value="recovered">Recuperados</option>
+                <option value="recovered">{pendingPayment ? "Pagos ou encerrados" : "Recuperados"}</option>
               </select>
             </div>
           </div>
@@ -457,7 +520,9 @@ export function AbandonedCartDashboard({
                 <tr>
                   <th className="text-left px-5 py-3">Status</th>
                   <th className="text-left px-5 py-3">Cliente</th>
-                  <th className="text-left px-5 py-3">Data do carrinho</th>
+                  <th className="text-left px-5 py-3">
+                    {pendingPayment ? "Data do pedido" : "Data do carrinho"}
+                  </th>
                   <th className="text-left px-5 py-3">Produtos</th>
                   <th className="text-left px-5 py-3">Total</th>
                   <th className="text-left px-5 py-3">Atividades</th>
@@ -465,7 +530,7 @@ export function AbandonedCartDashboard({
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredCarts.map((cart) => {
-                  const displayStatus = cartDisplayStatus(cart);
+                  const displayStatus = cartDisplayStatus(cart, recoveryKind);
                   const expanded = expandedCart === cart.id;
                   return (
                     <CartRows
@@ -477,6 +542,7 @@ export function AbandonedCartDashboard({
                       expanded={expanded}
                       onToggle={() => setExpandedCart(expanded ? null : cart.id)}
                       onManualSend={() => openManualSend(cart)}
+                      recoveryKind={recoveryKind}
                     />
                   );
                 })}
@@ -486,8 +552,12 @@ export function AbandonedCartDashboard({
         ) : (
           <div className="px-5 py-16 text-center text-gray-500">
             {carts.length
-              ? "Nenhum carrinho corresponde aos filtros."
-              : "Nenhum carrinho abandonado sincronizado ainda."}
+              ? pendingPayment
+                ? "Nenhum pedido corresponde aos filtros."
+                : "Nenhum carrinho corresponde aos filtros."
+              : pendingPayment
+                ? "Nenhum pedido com Pix pendente foi encontrado."
+                : "Nenhum carrinho abandonado sincronizado ainda."}
           </div>
         )}
       </section>}
@@ -507,6 +577,7 @@ export function AbandonedCartDashboard({
             setManualCart(null);
             setManualFeedback(null);
           }}
+          recoveryKind={recoveryKind}
         />
       )}
     </div>
@@ -525,6 +596,7 @@ function AbandonedFlowBuilder({
   onAddStep,
   onRemoveStep,
   onSave,
+  recoveryKind,
 }: {
   storeId: string;
   steps: AbandonedCartMessageStep[];
@@ -537,6 +609,7 @@ function AbandonedFlowBuilder({
   onAddStep: () => void;
   onRemoveStep: (id: string) => void;
   onSave: () => void;
+  recoveryKind: RecoveryKind;
 }) {
   const [editingStepId, setEditingStepId] = useState<string | null>(
     startEditing ? steps[0]?.id ?? null : null
@@ -548,12 +621,20 @@ function AbandonedFlowBuilder({
           <div className="w-full max-w-md rounded-2xl border-2 border-emerald-400 bg-white shadow-sm">
             <div className="flex items-center gap-3 p-4">
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
-                <FlowCartIcon />
+                {recoveryKind === "pending_payment" ? <FlowPaymentIcon /> : <FlowCartIcon />}
               </span>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Gatilho</div>
-                <div className="font-semibold text-zinc-950">Carrinho abandonado identificado</div>
-                <div className="mt-0.5 text-xs text-zinc-500">Inicia quando o checkout fica sem finalizar.</div>
+                <div className="font-semibold text-zinc-950">
+                  {recoveryKind === "pending_payment"
+                    ? "Pedido com Pix aguardando pagamento"
+                    : "Carrinho abandonado identificado"}
+                </div>
+                <div className="mt-0.5 text-xs text-zinc-500">
+                  {recoveryKind === "pending_payment"
+                    ? "Inicia quando o pedido é criado e o Pix continua pendente."
+                    : "Inicia quando o checkout fica sem finalizar."}
+                </div>
               </div>
             </div>
           </div>
@@ -563,7 +644,7 @@ function AbandonedFlowBuilder({
               <FlowConnector />
               <div className="w-full max-w-xl rounded-2xl border border-violet-200 bg-violet-50 p-4 shadow-sm">
                 <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-violet-700">
-                  <FlowClockIcon /> Tempo desde o carrinho
+                  <FlowClockIcon /> Tempo desde {recoveryKind === "pending_payment" ? "o pedido" : "o carrinho"}
                 </div>
                 <AutomationDelayField
                   delayMinutes={step.delayMinutes}
@@ -593,10 +674,14 @@ function AbandonedFlowBuilder({
                       Condição
                     </div>
                     <div className="mt-0.5 font-semibold text-zinc-950">
-                      Pedido ainda não foi fechado
+                      {recoveryKind === "pending_payment"
+                        ? "Pix ainda não foi pago"
+                        : "Pedido ainda não foi fechado"}
                     </div>
                     <p className="mt-1 text-xs leading-5 text-zinc-600">
-                      Se o checkout já virou pedido, esta e as próximas mensagens são canceladas.
+                      {recoveryKind === "pending_payment"
+                        ? "Se o pagamento for confirmado ou o pedido for cancelado, esta e as próximas mensagens são canceladas."
+                        : "Se o checkout já virou pedido, esta e as próximas mensagens são canceladas."}
                     </p>
                   </div>
                 </div>
@@ -662,12 +747,15 @@ function AbandonedFlowBuilder({
                       <MessageEditor
                         value={step.messageTemplate}
                         onChange={(messageTemplate) => onUpdateStep(step.id, { messageTemplate })}
-                        variables={["{{nome}}", "{{produtos}}", "{{link_carrinho}}", "{{loja}}", "{{cupom}}", "{{desconto}}"]}
+                        variables={recoveryKind === "pending_payment"
+                          ? ["{{nome}}", "{{pedido}}", "{{produtos}}", "{{link_pagamento}}", "{{loja}}", "{{cupom}}", "{{desconto}}"]
+                          : ["{{nome}}", "{{produtos}}", "{{link_carrinho}}", "{{loja}}", "{{cupom}}", "{{desconto}}"]}
                         label={`Mensagem ${index + 1}`}
                         minHeight={150}
                       />
                       <CouponSettings
                         step={step}
+                        recoveryKind={recoveryKind}
                         onChange={(patch) => {
                           const nextPatch = { ...patch };
                           if (
@@ -675,7 +763,9 @@ function AbandonedFlowBuilder({
                             !step.couponEnabled &&
                             !step.messageTemplate.includes("{{cupom}}")
                           ) {
-                            nextPatch.messageTemplate = `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* e aproveite {{desconto}}. O desconto já estará aplicado ao seu carrinho.`;
+                            nextPatch.messageTemplate = recoveryKind === "pending_payment"
+                              ? `${step.messageTemplate}\n\nSe preferir refazer a compra, use o cupom *{{cupom}}* e aproveite {{desconto}}.`
+                              : `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* e aproveite {{desconto}}. O desconto já estará aplicado ao seu carrinho.`;
                           }
                           onUpdateStep(step.id, nextPatch);
                         }}
@@ -767,6 +857,15 @@ function FlowCartIcon() {
   );
 }
 
+function FlowPaymentIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 10h18M7 15h4" />
+    </svg>
+  );
+}
+
 function FlowClockIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -806,9 +905,11 @@ function attachmentLabel(type: AbandonedCartMessageStep["attachmentType"]): stri
 function CouponSettings({
   step,
   onChange,
+  recoveryKind = "abandoned_cart",
 }: {
   step: AbandonedCartMessageStep;
   onChange: (patch: Partial<AbandonedCartMessageStep>) => void;
+  recoveryKind?: RecoveryKind;
 }) {
   return (
     <div className="mt-4 border-t border-gray-200 pt-4">
@@ -816,7 +917,9 @@ function CouponSettings({
         <div>
           <div className="text-sm font-semibold text-gray-800">Cupom automático</div>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500">
-            Cria um código exclusivo de uso único e aplica ao checkout antes de enviar a mensagem.
+            {recoveryKind === "pending_payment"
+              ? "Cria um código exclusivo de uso único para o cliente usar se refizer a compra. O valor do Pix já gerado não pode ser alterado."
+              : "Cria um código exclusivo de uso único e aplica ao checkout antes de enviar a mensagem."}
           </p>
         </div>
         <Toggle
@@ -904,7 +1007,11 @@ function CouponSettings({
             </label>
           </div>
           <div className="mt-3 text-xs leading-5 text-amber-900">
-            Use <strong>{"{{cupom}}"}</strong> para mostrar o código na mensagem. Se o checkout já tiver um cupom, o sistema preserva o código existente.
+            {recoveryKind === "pending_payment" ? (
+              <>Use <strong>{"{{cupom}}"}</strong> para mostrar o código. Ele não reduz o Pix existente; vale somente em uma nova compra.</>
+            ) : (
+              <>Use <strong>{"{{cupom}}"}</strong> para mostrar o código na mensagem. Se o checkout já tiver um cupom, o sistema preserva o código existente.</>
+            )}
           </div>
         </div>
       )}
@@ -928,6 +1035,7 @@ function CartRows({
   expanded,
   onToggle,
   onManualSend,
+  recoveryKind,
 }: {
   cart: AbandonedCartView;
   steps: AbandonedCartMessageStep[];
@@ -936,6 +1044,7 @@ function CartRows({
   expanded: boolean;
   onToggle: () => void;
   onManualSend: () => void;
+  recoveryKind: RecoveryKind;
 }) {
   return (
     <>
@@ -953,7 +1062,7 @@ function CartRows({
           </div>
         </td>
         <td className="px-5 py-4 whitespace-nowrap">
-          <div className="font-medium">#{cart.externalCheckoutId}</div>
+          <div className="font-medium">#{cart.referenceLabel || cart.externalCheckoutId}</div>
           <div className="text-xs text-gray-500 mt-1">{formatDateTime(cart.createdAt)}</div>
           <div className="text-xs text-gray-400 mt-1">{relativeDate(cart.createdAt)}</div>
         </td>
@@ -985,7 +1094,12 @@ function CartRows({
           {formatMoney(cart.total, cart.currency)}
         </td>
         <td className="px-5 py-4 min-w-[300px]">
-          <MessageSequenceStatus cart={cart} steps={steps} storeName={storeName} />
+          <MessageSequenceStatus
+            cart={cart}
+            steps={steps}
+            storeName={storeName}
+            recoveryKind={recoveryKind}
+          />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {cart.status === "abandoned" && (
               <button
@@ -1003,7 +1117,7 @@ function CartRows({
             </button>
             {cart.checkoutUrl && cart.status === "abandoned" && (
               <a href={cart.checkoutUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand-900 underline">
-                Abrir carrinho ↗
+                {recoveryKind === "pending_payment" ? "Abrir pedido" : "Abrir carrinho"} ↗
               </a>
             )}
           </div>
@@ -1014,7 +1128,9 @@ function CartRows({
           <td colSpan={6} className="px-5 py-4">
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <h3 className="text-xs font-semibold uppercase text-gray-500 mb-2">Itens do carrinho</h3>
+                <h3 className="text-xs font-semibold uppercase text-gray-500 mb-2">
+                  {recoveryKind === "pending_payment" ? "Itens do pedido" : "Itens do carrinho"}
+                </h3>
                 <div className="space-y-2">
                   {cart.products.map((product, index) => (
                     <div key={`${product.name}-${index}`} className="flex items-center justify-between gap-4 text-sm">
@@ -1033,7 +1149,7 @@ function CartRows({
                         <span className="font-medium">{message.sequenceStep}ª mensagem — {messageStatusLabels[message.status] || message.status}</span>
                         {message.couponCode && (
                           <div className="mt-0.5 text-xs font-medium text-amber-700">
-                            Cupom {message.couponCode} aplicado
+                            Cupom {message.couponCode} {recoveryKind === "pending_payment" ? "criado" : "aplicado"}
                           </div>
                         )}
                         {message.errorMessage && <div className="text-xs text-red-600 mt-0.5">{message.errorMessage}</div>}
@@ -1042,7 +1158,9 @@ function CartRows({
                         {message.sentAt ? formatDateTime(message.sentAt) : formatDateTime(message.scheduledFor)}
                       </span>
                     </div>
-                  )) : <div className="text-sm text-gray-500">A rotina ainda não gerou mensagens para este carrinho.</div>}
+                  )) : <div className="text-sm text-gray-500">
+                    A rotina ainda não gerou mensagens para este {recoveryKind === "pending_payment" ? "pedido" : "carrinho"}.
+                  </div>}
                 </div>
               </div>
             </div>
@@ -1063,6 +1181,7 @@ function ManualSendDialog({
   onSelectStep,
   onSend,
   onClose,
+  recoveryKind,
 }: {
   cart: AbandonedCartView;
   steps: AbandonedCartMessageStep[];
@@ -1073,6 +1192,7 @@ function ManualSendDialog({
   onSelectStep: (stepId: string) => void;
   onSend: () => void;
   onClose: () => void;
+  recoveryKind: RecoveryKind;
 }) {
   const selectedStep =
     steps.find((step) => step.id === selectedStepId) || steps[0] || null;
@@ -1099,7 +1219,7 @@ function ManualSendDialog({
               Enviar mensagem manualmente
             </h2>
             <p className="mt-1 text-sm text-zinc-500">
-              {cart.customerName} · carrinho #{cart.externalCheckoutId}
+              {cart.customerName} · {recoveryKind === "pending_payment" ? "pedido" : "carrinho"} #{cart.referenceLabel || cart.externalCheckoutId}
             </p>
           </div>
           <button
@@ -1115,8 +1235,9 @@ function ManualSendDialog({
 
         <div className="space-y-5 p-5">
           <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
-            O envio acontece agora e também funciona nos carrinhos antigos. Antes
-            de enviar, o sistema confirma novamente que o pedido continua aberto.
+            {recoveryKind === "pending_payment"
+              ? "O envio acontece agora, inclusive para pedidos antigos. Antes de enviar, o sistema confirma na Nuvemshop que o Pix ainda está pendente."
+              : "O envio acontece agora e também funciona nos carrinhos antigos. Antes de enviar, o sistema confirma novamente que o pedido continua aberto."}
           </div>
 
           <div>
@@ -1152,7 +1273,7 @@ function ManualSendDialog({
                       </span>
                     </div>
                     <div className="mt-1 text-xs text-zinc-500">
-                      {formatDelay(step.delayMinutes)} após o carrinho
+                      {formatDelay(step.delayMinutes)} após {recoveryKind === "pending_payment" ? "o pedido" : "o carrinho"}
                     </div>
                   </button>
                 );
@@ -1168,7 +1289,9 @@ function ManualSendDialog({
                 </div>
                 {selectedStep.couponEnabled && (
                   <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
-                    O cupom será aplicado no envio
+                    {recoveryKind === "pending_payment"
+                      ? "Cupom válido para uma nova compra"
+                      : "O cupom será aplicado no envio"}
                   </span>
                 )}
               </div>
@@ -1179,7 +1302,8 @@ function ManualSendDialog({
                       selectedStep,
                       cart,
                       storeName,
-                      selectedDelivery?.couponCode
+                      selectedDelivery?.couponCode,
+                      recoveryKind
                     )}
                   </div>
                 </div>
@@ -1237,10 +1361,12 @@ function MessageSequenceStatus({
   cart,
   steps,
   storeName,
+  recoveryKind,
 }: {
   cart: AbandonedCartView;
   steps: AbandonedCartMessageStep[];
   storeName: string;
+  recoveryKind: RecoveryKind;
 }) {
   const [preview, setPreview] = useState<MessagePreviewState | null>(null);
   const messagesByStep = new Map(
@@ -1258,7 +1384,13 @@ function MessageSequenceStatus({
       stepNumber,
       delivery,
       status,
-      content: renderCartMessage(step, cart, storeName, delivery?.couponCode),
+      content: renderCartMessage(
+        step,
+        cart,
+        storeName,
+        delivery?.couponCode,
+        recoveryKind
+      ),
       attachmentUrl:
         delivery?.attachmentUrl ||
         (step.attachmentType === "library"
@@ -1314,10 +1446,10 @@ function MessageSequenceStatus({
             <div className="flex items-center justify-between gap-3 bg-zinc-900 px-5 py-4 text-white">
               <div>
                 <div className="text-sm font-semibold">
-                  Mensagem {preview.stepNumber} · Carrinho abandonado
+                  Mensagem {preview.stepNumber} · {recoveryKind === "pending_payment" ? "Pix pendente" : "Carrinho abandonado"}
                 </div>
                 <div className="mt-0.5 text-xs text-zinc-300">
-                  {formatDelay(preview.step.delayMinutes)} após o carrinho
+                  {formatDelay(preview.step.delayMinutes)} após {recoveryKind === "pending_payment" ? "o pedido" : "o carrinho"}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1361,7 +1493,7 @@ function MessageSequenceStatus({
                     </strong>
                   </>
                 ) : (
-                  "Esta mensagem ainda não foi programada para este carrinho."
+                  `Esta mensagem ainda não foi programada para este ${recoveryKind === "pending_payment" ? "pedido" : "carrinho"}.`
                 )}
               </div>
               {preview.delivery?.errorMessage && (
@@ -1492,20 +1624,29 @@ function renderCartMessage(
   step: AbandonedCartMessageStep,
   cart: AbandonedCartView,
   storeName: string,
-  deliveredCouponCode?: string | null
+  deliveredCouponCode?: string | null,
+  recoveryKind: RecoveryKind = "abandoned_cart"
 ): string {
   const firstName = cart.customerName.trim().split(/\s+/)[0] || "cliente";
-  const couponCode = deliveredCouponCode || (step.couponEnabled ? "CAR" : "");
+  const couponCode =
+    deliveredCouponCode ||
+    (step.couponEnabled
+      ? recoveryKind === "pending_payment" ? "PIX" : "CAR"
+      : "");
   const template =
     couponCode && !step.messageTemplate.includes("{{cupom}}")
-      ? `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* no seu carrinho.`
+      ? recoveryKind === "pending_payment"
+        ? `${step.messageTemplate}\n\nSe preferir refazer a compra, use o cupom *{{cupom}}*.`
+        : `${step.messageTemplate}\n\nUse o cupom *{{cupom}}* no seu carrinho.`
       : step.messageTemplate;
   const variables: Record<string, string> = {
     "{{nome}}": firstName,
     "{{produtos}}": cart.productsSummary || "seus produtos",
     "{{link}}": cart.checkoutUrl || "Link indisponível",
     "{{link_carrinho}}": cart.checkoutUrl || "Link indisponível",
+    "{{link_pagamento}}": cart.checkoutUrl || "Link indisponível",
     "{{loja}}": storeName,
+    "{{pedido}}": cart.referenceLabel || cart.externalCheckoutId,
     "{{cupom}}": couponCode,
     "{{desconto}}": couponDiscountPreview(step),
   };
@@ -1566,17 +1707,32 @@ function Toggle({ value, onChange, label, compact = false }: { value: boolean; o
   );
 }
 
-function cartDisplayStatus(cart: AbandonedCartView) {
+function cartDisplayStatus(
+  cart: AbandonedCartView,
+  recoveryKind: RecoveryKind = "abandoned_cart"
+) {
   if (cart.status !== "abandoned") {
-    return { key: "recovered", label: "Compra recuperada", className: "bg-green-100 text-green-800" };
+    return {
+      key: "recovered",
+      label: recoveryKind === "pending_payment" ? "Pago ou encerrado" : "Compra recuperada",
+      className: "bg-green-100 text-green-800",
+    };
   }
   if (!cart.customerPhone) {
     return { key: "no_phone", label: "Sem WhatsApp", className: "bg-red-100 text-red-800" };
   }
   if (cart.messages.some((message) => ["scheduled", "processing", "sent"].includes(message.status))) {
-    return { key: "recovering", label: "Em recuperação", className: "bg-amber-100 text-amber-800" };
+    return {
+      key: "recovering",
+      label: recoveryKind === "pending_payment" ? "Em cobrança" : "Em recuperação",
+      className: "bg-amber-100 text-amber-800",
+    };
   }
-  return { key: "waiting", label: "Aguardando rotina", className: "bg-gray-100 text-gray-700" };
+  return {
+    key: "waiting",
+    label: recoveryKind === "pending_payment" ? "Pix pendente" : "Aguardando rotina",
+    className: "bg-gray-100 text-gray-700",
+  };
 }
 
 function formatDateTime(value: string): string {

@@ -9,6 +9,7 @@ export function AutomationNav() {
   const section = searchParams.get("section") || "orders";
   const tabs = [
     { slug: "abandoned-carts", label: "Carrinho abandonado" },
+    { slug: "pending-payments", label: "Pix pendente" },
     { slug: "post-sale", label: section === "orders" ? "Pedidos" : "Pós-venda" },
   ];
 

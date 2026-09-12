@@ -84,7 +84,9 @@ export function Sidebar({
   const router = useRouter();
   const automationType = pathname.startsWith("/automations/post-sale")
     ? "post-sale"
-    : "abandoned-carts";
+    : pathname.startsWith("/automations/pending-payments")
+      ? "pending-payments"
+      : "abandoned-carts";
   const activeAutomationSection = searchParams.get("section") || "orders";
 
   async function logout() {

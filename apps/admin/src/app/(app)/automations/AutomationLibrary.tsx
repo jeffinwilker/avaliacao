@@ -46,6 +46,16 @@ const PRESETS: PresetAutomation[] = [
     tone: "blue",
   },
   {
+    id: "pending-pix",
+    title: "Recuperação de Pix pendente",
+    category: "Pagamento pendente",
+    trigger: "Pedido criado com Pix pendente",
+    description: "Lembre o cliente de concluir o Pix, com até cinco mensagens e envio manual seguro.",
+    href: "/automations/pending-payments?section=routines&editor=preset",
+    messages: "1 mensagem inicial · até 5 mensagens",
+    tone: "amber",
+  },
+  {
     id: "shipping-tracking",
     title: "Pedido enviado com rastreio",
     category: "Pós-venda",
@@ -242,6 +252,8 @@ function NewAutomationDialog({ onClose }: { onClose: () => void }) {
   const href =
     type === "abandoned_cart"
       ? "/automations/abandoned-carts?section=routines&editor=blank"
+      : type === "pending_payment"
+        ? "/automations/pending-payments?section=routines&editor=blank"
       : type === "review_request"
         ? "/automations/post-sale?section=routines&focus=review_request&editor=blank"
         : type === "birthday_collection"
@@ -260,6 +272,7 @@ function NewAutomationDialog({ onClose }: { onClose: () => void }) {
             Tipo de automação
             <select value={type} onChange={(event) => setType(event.target.value)} className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-sm font-normal">
               <option value="abandoned_cart">Carrinho abandonado</option>
+              <option value="pending_payment">Pedido com Pix pendente</option>
               <option value="post_sale">Evento de pedido ou entrega</option>
               <option value="review_request">Pedido de avaliação</option>
               <option value="birthday_collection">Coleta de aniversário</option>
@@ -274,6 +287,7 @@ function NewAutomationDialog({ onClose }: { onClose: () => void }) {
             </label>
           )}
           {type === "abandoned_cart" && <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">No editor você poderá adicionar até cinco mensagens, cada uma com seu próprio tempo, anexo e cupom.</div>}
+          {type === "pending_payment" && <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">O sistema confirma o pagamento antes de cada envio e cancela o restante da sequência assim que o Pix for pago.</div>}
         </div>
         <div className="flex justify-end gap-3 border-t border-zinc-200 px-6 py-4">
           <button type="button" onClick={onClose} className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-700">Cancelar</button>

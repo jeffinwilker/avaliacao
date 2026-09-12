@@ -64,6 +64,14 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - O widget de Reels usa a URL pública atual do R2 junto do `storage_path`, então
   corrige automaticamente vídeos salvos antes de uma troca de `R2_PUBLIC_URL`.
   O modal funciona como Stories, sem controles nativos e com progresso no topo.
+- A área de automações agora também possui **Pix pendente**. Ela sincroniza pedidos
+  abertos pagos por Pix, permite uma sequência de até cinco lembretes e envio
+  manual, inclusive para pedidos antigos. Antes de cada envio, consulta novamente
+  a Nuvemshop e cancela o restante quando o pagamento foi confirmado ou o pedido
+  foi cancelado. O link usa a página segura de acompanhamento do pedido. Cupons
+  exclusivos com prefixo `PIX` podem ser enviados, mas não alteram o valor de um
+  Pix já gerado: servem somente caso o cliente refaça a compra. A migration
+  `0020_pending_payment_automations.sql` precisa ser executada antes do deploy.
 - A página `/products/colors` importa XLSX/CSV com Cor e/ou Novo SKU. O modelo
   consulta a Nuvemshop e traz uma linha por variação com IDs, opções e SKU atual.
   A prévia permite corrigir produto e variação. Cor existente é ignorada, mas o
@@ -87,8 +95,8 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   carrinho ainda está aberto.
 - Ao retomar: rode `git status`, `git log -5 --oneline` e leia esta seção. Não
   refaça funcionalidades já descritas como concluídas.
-- Próximo passo operacional: executar a migration `0018` no SQL Editor do
-  Supabase se ainda estiver pendente, executar a `0019` e atualizar o VPS com
+- Próximo passo operacional: executar as migrations pendentes no SQL Editor do
+  Supabase, incluindo `0019` e `0020`, e atualizar o VPS com
   `git pull`, `npm run build` e
   `pm2 startOrReload ecosystem.config.cjs --update-env`.
 
@@ -283,6 +291,10 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   A aba **Pedidos** importa compras anteriores à instalação dos webhooks, mostra
   somente entregues por padrão e oferece o mesmo envio manual por produto para o
   convite de avaliação.
+  A aba **Pix pendente** usa o mesmo editor de até cinco etapas para pedidos
+  abertos cujo `payment_details.method` é `pix` e `payment_status` é `pending`.
+  O worker agenda os lembretes, o webhook `order/paid` cancela a fila e o envio
+  também revalida o pedido diretamente na API para evitar cobrança após pagamento.
   O webhook `order/created` enfileira a confirmação do pedido; a confirmação de
   entrega cria os pedidos de avaliação; os demais eventos enfileiram as mensagens configuradas
   para cada estado e `order/cancelled` cancela mensagens pendentes.
@@ -323,6 +335,7 @@ Rode as migrations **em ordem** no SQL Editor (idempotentes, usam `if not exists
 | `0017_birthday_collection.sql` | configuração da coleta pós-compra de aniversário e tokens em `customer_birthdate_requests` |
 | `0018_fix_automation_message_sequence_constraint.sql` | remove a unicidade legada de uma mensagem por carrinho e preserva a unicidade por etapa |
 | `0019_native_nuvemshop_kits.sql` | identifica kits nativos importados e separa-os dos produtos-kit legados |
+| `0020_pending_payment_automations.sql` | rotina, dados operacionais e fila de lembretes para pedidos com Pix pendente |
 
 **Storage buckets (públicos):** `review-media` (fotos/vídeos de reviews),
 `kit-media` (imagens de kit enviadas pelo lojista) e `automation-media`
@@ -477,6 +490,8 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/run` (POST — dispara o cron manualmente),
 `/api/automations/abandoned-cart-routine`, `/api/automations/post-sale-routine`,
 `/api/automations/abandoned-cart-manual-send`,
+`/api/automations/pending-payment-routine`,
+`/api/automations/pending-payment-manual-send`,
 `/api/automations/review-request-manual-send`, `/api/automations/sync-orders`,
 `/api/whatsapp/chats`, `/api/whatsapp/messages`, `/api/whatsapp/media`,
 `/api/reels` (POST), `/api/reels/[id]` (PUT/DELETE), `/api/reels/upload-video`,

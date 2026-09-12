@@ -58,6 +58,31 @@ export const DEFAULT_ABANDONED_CART_SEQUENCE = [
   },
 ];
 
+export const DEFAULT_PENDING_PAYMENT_WHATSAPP_TEMPLATE = `Oi {{nome}}! 👋
+
+O Pix do pedido *#{{pedido}}* na {{loja}} ainda está aguardando pagamento.
+
+Você pode abrir a página segura do pedido e tentar pagar novamente por aqui:
+{{link_pagamento}}
+
+Se precisar de ajuda, é só responder esta mensagem. 💛`;
+
+export const DEFAULT_PENDING_PAYMENT_SEQUENCE = [
+  {
+    id: "step-1",
+    delayMinutes: 30,
+    messageTemplate: DEFAULT_PENDING_PAYMENT_WHATSAPP_TEMPLATE,
+    enabled: true,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+    couponEnabled: false,
+    couponType: "percentage" as const,
+    couponValue: 10,
+    couponValidHours: 48,
+    couponMinPrice: null,
+  },
+];
+
 export const DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE = `Oi {{nome}}! 💛
 
 Recebemos seu pedido *#{{pedido}}* na {{loja}} com: {{produtos}}.

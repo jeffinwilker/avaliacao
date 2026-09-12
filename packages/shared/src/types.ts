@@ -55,6 +55,8 @@ export interface StoreSettings {
   abandonedCartDelayHours: number;
   abandonedCartWhatsappTemplate: string | null;
   abandonedCartSequence: AbandonedCartMessageStep[];
+  pendingPaymentEnabled: boolean;
+  pendingPaymentSequence: AbandonedCartMessageStep[];
   postPurchaseEnabled: boolean;
   postPurchaseDelayHours: number;
   postPurchaseDelayMinutes: number;

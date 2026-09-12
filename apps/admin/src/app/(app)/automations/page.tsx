@@ -4,6 +4,7 @@ import {
 } from "@avaliacoes/shared";
 import {
   parseAbandonedCartSequence,
+  parsePendingPaymentSequence,
   parsePostSaleSequence,
 } from "@/lib/automations";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -55,6 +56,7 @@ export default async function AutomationsPage() {
     .select(
       `abandoned_cart_enabled, abandoned_cart_delay_hours,
        abandoned_cart_whatsapp_template, abandoned_cart_sequence,
+       pending_payment_enabled, pending_payment_sequence,
        whatsapp_enabled, review_request_delay_minutes,
        post_purchase_enabled, post_purchase_delay_minutes,
        post_purchase_whatsapp_template, post_purchase_attachment_type,
@@ -69,7 +71,7 @@ export default async function AutomationsPage() {
       <div className="p-8">
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
           Não foi possível carregar as automações. Confirme se todas as migrations até
-          <code className="mx-1 font-mono">0017_birthday_collection.sql</code>
+          <code className="mx-1 font-mono">0020_pending_payment_automations.sql</code>
           foram executadas no Supabase.
         </div>
       </div>
@@ -92,6 +94,21 @@ export default async function AutomationsPage() {
       description: `${abandonedSteps.filter((step) => step.enabled).length} mensagem(ns) configurada(s) para recuperar a compra.`,
       href: "/automations/abandoned-carts?section=routines&editor=edit",
       messageCount: abandonedSteps.filter((step) => step.enabled).length,
+    });
+  }
+
+  const pendingPaymentSteps = parsePendingPaymentSequence(
+    settings?.pending_payment_sequence
+  );
+  if (settings?.pending_payment_enabled) {
+    active.push({
+      id: "pending_payment",
+      title: "Recuperação de Pix pendente",
+      category: "Pagamento pendente",
+      trigger: "Pedido criado com Pix pendente",
+      description: `${pendingPaymentSteps.filter((step) => step.enabled).length} mensagem(ns) configurada(s), canceladas assim que o pagamento for confirmado.`,
+      href: "/automations/pending-payments?section=routines&editor=edit",
+      messageCount: pendingPaymentSteps.filter((step) => step.enabled).length,
     });
   }
 

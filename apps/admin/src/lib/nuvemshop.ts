@@ -76,6 +76,15 @@ export interface NuvemshopOrder {
   contact_phone?: string | null;
   status: string;
   payment_status?: string;
+  payment_details?: {
+    method?: string | null;
+    credit_card_company?: string | null;
+    installments?: number | null;
+  } | null;
+  gateway?: string | null;
+  checkout_enabled?: boolean;
+  total?: string | number | null;
+  currency?: string | null;
   shipping_status?: string;
   shipping_tracking_number?: string | null;
   shipping_tracking_url?: string | null;
@@ -819,6 +828,55 @@ export async function ensureAbandonedCheckoutCoupon(
     };
   }
 
+  const coupon = await ensureStoreCoupon(storeId, token, input);
+
+  try {
+    await request<NuvemshopAbandonedCheckout>(
+      "POST",
+      storeId,
+      token,
+      `/checkouts/${checkoutId}/coupon`,
+      { body: { coupon_id: coupon.id } }
+    );
+    return coupon;
+  } catch (error) {
+    if (!(error as Error).message.includes("already has an assigned coupon")) {
+      throw error;
+    }
+    const refreshed = await request<NuvemshopAbandonedCheckout>(
+      "GET",
+      storeId,
+      token,
+      `/checkouts/${checkoutId}`,
+      { params: { fields: "id,coupon" } }
+    );
+    const current = refreshed.coupon?.find((item) => item.id && item.code);
+    if (!current) throw error;
+    return {
+      id: current.id,
+      code: current.code,
+      type: input.type,
+      valid: true,
+    };
+  }
+}
+
+/**
+ * Cria um cupom exclusivo sem tentar aplicá-lo a um pedido já fechado.
+ * Pedidos com Pix pendente não aceitam alteração de valor pela API; nesse caso
+ * o código pode ser usado caso o cliente opte por refazer a compra.
+ */
+export async function ensureStoreCoupon(
+  storeId: string,
+  token: string,
+  input: {
+    code: string;
+    type: "percentage" | "absolute" | "shipping";
+    value: number;
+    validHours: number;
+    minPrice?: number | null;
+  }
+): Promise<NuvemshopCoupon> {
   const matches = await request<NuvemshopCoupon[]>(
     "GET",
     storeId,
@@ -874,35 +932,7 @@ export async function ensureAbandonedCheckoutCoupon(
     }
   }
 
-  try {
-    await request<NuvemshopAbandonedCheckout>(
-      "POST",
-      storeId,
-      token,
-      `/checkouts/${checkoutId}/coupon`,
-      { body: { coupon_id: coupon.id } }
-    );
-    return coupon;
-  } catch (error) {
-    if (!(error as Error).message.includes("already has an assigned coupon")) {
-      throw error;
-    }
-    const refreshed = await request<NuvemshopAbandonedCheckout>(
-      "GET",
-      storeId,
-      token,
-      `/checkouts/${checkoutId}`,
-      { params: { fields: "id,coupon" } }
-    );
-    const current = refreshed.coupon?.find((item) => item.id && item.code);
-    if (!current) throw error;
-    return {
-      id: current.id,
-      code: current.code,
-      type: input.type,
-      valid: true,
-    };
-  }
+  return coupon;
 }
 
 // ============================ WEBHOOKS ============================
@@ -926,6 +956,19 @@ export async function registerWebhook(
     // 422 = já registrado
     throw new Error(`Webhook register failed: ${await res.text()}`);
   }
+}
+
+/** Link público e individual da página de acompanhamento do pedido. */
+export function buildNuvemshopOrderStatusUrl(
+  domain: string | null,
+  orderId: string | number,
+  token: string | null | undefined
+): string | null {
+  if (!domain || !token) return null;
+  const base = /^https?:\/\//i.test(domain) ? domain : `https://${domain}`;
+  return `${base.replace(/\/$/, "")}/checkout/v3/success/${encodeURIComponent(
+    String(orderId)
+  )}/${encodeURIComponent(token)}`;
 }
 
 // ============================ HELPERS ============================

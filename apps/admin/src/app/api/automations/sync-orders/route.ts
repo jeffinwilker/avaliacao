@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { syncRecentOrders } from "@/lib/order-sync";
+import { syncPendingPaymentOrders } from "@/lib/automations";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -13,10 +14,12 @@ export async function POST() {
   try {
     // A tela atualiza os dados; o worker central é o único responsável por
     // criar convites automáticos, evitando duas filas concorrentes.
-    const sync = await syncRecentOrders(createAdminClient(), {
+    const admin = createAdminClient();
+    const sync = await syncRecentOrders(admin, {
       scheduleReviewRequests: false,
     });
-    return NextResponse.json({ ok: true, sync });
+    const pendingPayments = await syncPendingPaymentOrders(admin);
+    return NextResponse.json({ ok: true, sync, pendingPayments });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message || "Não foi possível atualizar os pedidos" },

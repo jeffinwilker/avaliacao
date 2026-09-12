@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function SyncDeliveredOrdersButton() {
+export function SyncDeliveredOrdersButton({
+  mode = "delivered",
+}: {
+  mode?: "delivered" | "pending_payment";
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{
@@ -37,15 +41,20 @@ export function SyncDeliveredOrdersButton() {
 
       setLastUpdatedAt(new Date());
       if (!silent) {
-        const queued =
-          (result.sync?.reviewRequestsQueued ?? 0) +
-          (result.sync?.reviewRequestsReactivated ?? 0);
+        const queued = mode === "pending_payment"
+          ? result.pendingPayments?.queued ?? 0
+          : (result.sync?.reviewRequestsQueued ?? 0) +
+            (result.sync?.reviewRequestsReactivated ?? 0);
         setFeedback({
           type: "ok",
           text:
             queued > 0
-              ? `${queued} convite(s) de avaliação agendado(s).`
-              : `${result.sync?.delivered ?? 0} pedido(s) entregue(s) encontrado(s).`,
+              ? mode === "pending_payment"
+                ? `${queued} lembrete(s) de Pix agendado(s).`
+                : `${queued} convite(s) de avaliação agendado(s).`
+              : mode === "pending_payment"
+                ? `${result.pendingPayments?.eligible ?? 0} pedido(s) com Pix pendente encontrado(s).`
+                : `${result.sync?.delivered ?? 0} pedido(s) entregue(s) encontrado(s).`,
         });
         window.setTimeout(() => setFeedback(null), 4_000);
       }
@@ -61,7 +70,7 @@ export function SyncDeliveredOrdersButton() {
       runningRef.current = false;
       if (!silent) setLoading(false);
     }
-  }, [router]);
+  }, [mode, router]);
 
   useEffect(() => {
     const syncWhenVisible = () => {

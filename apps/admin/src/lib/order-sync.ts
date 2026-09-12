@@ -1,4 +1,5 @@
 import {
+  buildNuvemshopOrderStatusUrl,
   fetchRecentOrders,
   type NuvemshopFulfillmentOrder,
   type NuvemshopOrder,
@@ -50,7 +51,7 @@ export async function syncRecentOrders(
 ): Promise<OrderSyncResult> {
   const { data: store } = await admin
     .from("stores")
-    .select("id, external_store_id, access_token")
+    .select("id, external_store_id, access_token, domain")
     .eq("platform", "nuvemshop")
     .not("access_token", "is", null)
     .maybeSingle();
@@ -103,6 +104,20 @@ export async function syncRecentOrders(
             ? "delivered"
             : order.status || "open",
       payment_status: order.payment_status || null,
+      payment_method: order.payment_details?.method?.toLowerCase() || null,
+      order_number: String(order.number || externalOrderId),
+      source_token: order.token || null,
+      order_status_url: buildNuvemshopOrderStatusUrl(
+        store.domain,
+        externalOrderId,
+        order.token
+      ),
+      products_summary: summarizeOrderProducts(order),
+      product_image_url:
+        order.products?.find((item) => item.image?.src)?.image?.src || null,
+      total: parseMoney(order.total),
+      currency: order.currency || "BRL",
+      paid_at: order.paid_at || null,
       shipping_status: order.shipping_status || null,
       fulfillment_status:
         delivery.fulfillmentStatus || existing?.fulfillment_status || null,
@@ -233,6 +248,23 @@ export async function syncRecentOrders(
     reviewRequestsQueued: reviewQueue.queued,
     reviewRequestsReactivated: reviewQueue.reactivated,
   };
+}
+
+function summarizeOrderProducts(order: NuvemshopOrder): string {
+  return (order.products ?? [])
+    .filter((item) => item.name)
+    .map((item) => {
+      const quantity = Math.max(1, Number(item.quantity) || 1);
+      return quantity > 1 ? `${quantity}x ${item.name}` : String(item.name);
+    })
+    .join(", ")
+    .slice(0, 500);
+}
+
+function parseMoney(value: string | number | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function scheduleRecentDeliveredReviewRequests(

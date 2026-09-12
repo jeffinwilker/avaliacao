@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   sendScheduledAutomationMessages,
   syncAbandonedCarts,
+  syncPendingPaymentOrders,
 } from "@/lib/automations";
 import { sendDueReviewRequests } from "@/lib/review-requests";
 import { syncRecentOrders } from "@/lib/order-sync";
@@ -37,8 +38,22 @@ export async function POST(req: NextRequest) {
     reviewRequestsReactivated: 0,
     error: (error as Error).message,
   }));
+  const pendingPayments = await syncPendingPaymentOrders(admin).catch((error) => ({
+    found: 0,
+    eligible: 0,
+    queued: 0,
+    cancelled: 0,
+    error: (error as Error).message,
+  }));
   const automations = await sendScheduledAutomationMessages(admin);
   const reviews = await sendDueReviewRequests(admin);
 
-  return NextResponse.json({ ok: true, sync, orders, automations, reviews });
+  return NextResponse.json({
+    ok: true,
+    sync,
+    orders,
+    pendingPayments,
+    automations,
+    reviews,
+  });
 }

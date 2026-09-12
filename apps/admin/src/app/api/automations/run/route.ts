@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   sendScheduledAutomationMessages,
   syncAbandonedCarts,
+  syncPendingPaymentOrders,
 } from "@/lib/automations";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -13,6 +14,7 @@ export async function POST() {
 
   const admin = createAdminClient();
   const sync = await syncAbandonedCarts(admin);
+  const pendingPayments = await syncPendingPaymentOrders(admin);
   const messages = await sendScheduledAutomationMessages(admin);
-  return NextResponse.json({ ok: true, sync, messages });
+  return NextResponse.json({ ok: true, sync, pendingPayments, messages });
 }

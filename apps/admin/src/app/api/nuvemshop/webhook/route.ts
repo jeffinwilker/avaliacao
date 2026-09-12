@@ -3,12 +3,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   cancelAbandonedCartForOrder,
   cancelMessagesForOrder,
+  cancelPendingPaymentMessagesForOrder,
   parsePostSaleSequence,
   queueBirthdayCollectionMessage,
   queuePostPurchaseMessage,
   summarizeProducts,
 } from "@/lib/automations";
 import {
+  buildNuvemshopOrderStatusUrl,
   fetchCustomer,
   fetchFulfillmentOrder,
   fetchOrder,
@@ -216,6 +218,21 @@ export async function POST(req: NextRequest) {
         customer_phone: customerPhone,
         status: resolveOrderStatus(payload.event, order, fulfillmentStatus, trackingStatus),
         payment_status: order.payment_status || null,
+        payment_method: order.payment_details?.method?.toLowerCase() || null,
+        order_number: String(order.number || externalOrderId),
+        source_token: order.token || null,
+        order_status_url: buildNuvemshopOrderStatusUrl(
+          store.domain,
+          externalOrderId,
+          order.token
+        ),
+        products_summary: summarizeProducts(order.products ?? []),
+        product_image_url:
+          order.products?.find((item) => item.image?.src)?.image?.src || null,
+        total:
+          order.total == null || order.total === "" ? null : Number(order.total),
+        currency: order.currency || "BRL",
+        paid_at: order.paid_at || null,
         shipping_status: order.shipping_status || null,
         fulfillment_status: fulfillmentStatus,
         tracking_status: trackingStatus,
@@ -247,6 +264,21 @@ export async function POST(req: NextRequest) {
 
   // Qualquer pedido originado do checkout invalida a recuperação de carrinho.
   await cancelAbandonedCartForOrder(admin, store.id, order.token);
+
+  if (
+    payload.event === "order/paid" ||
+    payload.event === "order/cancelled" ||
+    order.payment_status !== "pending"
+  ) {
+    await cancelPendingPaymentMessagesForOrder(admin, {
+      storeId: store.id,
+      externalOrderId,
+      reason:
+        payload.event === "order/paid"
+          ? "Pagamento confirmado"
+          : "Pedido cancelado ou pagamento indisponível",
+    });
+  }
 
   if (payload.event === "order/cancelled") {
     await Promise.all([

@@ -16,6 +16,11 @@ const sectionTitles = [
     title: "Pós-venda",
     group: "Automações",
   },
+  {
+    path: "/automations/pending-payments",
+    title: "Pix pendente",
+    group: "Automações",
+  },
   { path: "/automations", title: "Automações", group: "Automações" },
   { path: "/reviews", title: "Avaliações", group: "Gestão" },
   { path: "/kits", title: "Kits de produtos", group: "Gestão" },

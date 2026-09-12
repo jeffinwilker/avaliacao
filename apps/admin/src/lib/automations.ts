@@ -2,6 +2,8 @@ import {
   DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE,
   DEFAULT_ABANDONED_CART_SEQUENCE,
   DEFAULT_ABANDONED_CART_WHATSAPP_TEMPLATE,
+  DEFAULT_PENDING_PAYMENT_SEQUENCE,
+  DEFAULT_PENDING_PAYMENT_WHATSAPP_TEMPLATE,
   DEFAULT_POST_SALE_SEQUENCE,
   DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE,
   type AbandonedCartMessageStep,
@@ -12,13 +14,19 @@ import {
 } from "@avaliacoes/shared";
 import {
   ensureAbandonedCheckoutCoupon,
+  ensureStoreCoupon,
   fetchAllAbandonedCheckouts,
+  fetchOrder,
 } from "@/lib/nuvemshop";
 import { sendWhatsApp } from "@/lib/providers/whatsapp";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
-type AutomationType = "abandoned_cart" | "post_purchase" | "birthday_collection";
+type AutomationType =
+  | "abandoned_cart"
+  | "pending_payment"
+  | "post_purchase"
+  | "birthday_collection";
 
 interface AutomationMessageInput {
   storeId: string;
@@ -94,6 +102,13 @@ export interface AbandonedCartSyncResult {
   errors: string[];
 }
 
+export interface PendingPaymentSyncResult {
+  found: number;
+  eligible: number;
+  queued: number;
+  cancelled: number;
+}
+
 export interface AutomationSendResult {
   processed: number;
   sent: number;
@@ -107,6 +122,8 @@ export interface ManualAbandonedCartSendResult {
   sentAt: string;
   couponCode: string | null;
 }
+
+export type ManualPendingPaymentSendResult = ManualAbandonedCartSendResult;
 
 export async function syncAbandonedCarts(
   admin: AdminClient
@@ -343,6 +360,177 @@ export async function syncAbandonedCarts(
   return result;
 }
 
+export async function syncPendingPaymentOrders(
+  admin: AdminClient
+): Promise<PendingPaymentSyncResult> {
+  const result: PendingPaymentSyncResult = {
+    found: 0,
+    eligible: 0,
+    queued: 0,
+    cancelled: 0,
+  };
+
+  const [{ data: stores, error: storesError }, { data: configs, error: configsError }] =
+    await Promise.all([
+      admin
+        .from("stores")
+        .select("id")
+        .eq("platform", "nuvemshop"),
+      admin
+        .from("store_settings")
+        .select("store_id, pending_payment_enabled, pending_payment_sequence"),
+    ]);
+  if (storesError) throw storesError;
+  if (configsError) throw configsError;
+  const configsByStore = new Map(
+    (configs ?? []).map((config) => [config.store_id, config])
+  );
+
+  for (const store of stores ?? []) {
+    const config = configsByStore.get(store.id);
+    const steps = parsePendingPaymentSequence(config?.pending_payment_sequence);
+    const activeSteps = config?.pending_payment_enabled
+      ? steps.filter((step) => step.enabled)
+      : [];
+    const [{ data: orders, error: ordersError }, { data: messages, error: messagesError }] =
+      await Promise.all([
+        admin
+          .from("orders")
+          .select(
+            `id, external_order_id, order_number, source_token, customer_name,
+             customer_phone, status, payment_status, payment_method, ordered_at,
+             paid_at, order_status_url, products_summary, product_image_url`
+          )
+          .eq("store_id", store.id)
+          .order("ordered_at", { ascending: false })
+          .limit(2_000),
+        admin
+          .from("automation_messages")
+          .select("id, external_reference, routine_step_key, status")
+          .eq("store_id", store.id)
+          .eq("automation_type", "pending_payment"),
+      ]);
+    if (ordersError) throw ordersError;
+    if (messagesError) throw messagesError;
+
+    result.found += orders?.length ?? 0;
+    const ordersByExternalId = new Map(
+      (orders ?? []).map((order) => [order.external_order_id, order])
+    );
+    const knownMessageByKey = new Map(
+      ((messages ?? []) as ExistingAutomationMessage[]).map((message) => [
+        `${message.external_reference}:${message.routine_step_key}`,
+        message,
+      ])
+    );
+    const eligibleOrders = (orders ?? []).filter(isPendingPixOrder);
+    result.eligible += eligibleOrders.length;
+
+    const rows = eligibleOrders.flatMap((order) => {
+      if (
+        !order.customer_phone ||
+        !order.order_status_url ||
+        !order.products_summary
+      ) {
+        return [];
+      }
+      const orderedAt = new Date(order.ordered_at).getTime();
+      const baseTime = Number.isFinite(orderedAt) ? orderedAt : Date.now();
+      return activeSteps.flatMap((step, index) => {
+        const activeSince = step.active_since
+          ? new Date(step.active_since).getTime()
+          : NaN;
+        if (Number.isFinite(activeSince) && baseTime < activeSince) return [];
+
+        const existing = knownMessageByKey.get(
+          `${order.external_order_id}:${step.id}`
+        );
+        if (existing && ["sent", "processing", "failed"].includes(existing.status)) {
+          return [];
+        }
+        const attachmentUrl =
+          step.attachment_type === "library"
+            ? step.attachment_url
+            : step.attachment_type === "product_image"
+              ? order.product_image_url
+              : null;
+        return [{
+          store_id: store.id,
+          automation_type: "pending_payment" as const,
+          external_reference: order.external_order_id,
+          reference_label: order.order_number || order.external_order_id,
+          source_token: order.source_token || null,
+          customer_name: order.customer_name || "Cliente",
+          customer_phone: order.customer_phone,
+          products_summary: order.products_summary,
+          link: order.order_status_url,
+          routine_step_key: step.id,
+          sequence_step: index + 1,
+          status: "scheduled" as const,
+          error_message: null,
+          attachment_type: attachmentUrl ? "image" : "none",
+          attachment_url: attachmentUrl,
+          scheduled_for: new Date(
+            baseTime + step.delay_minutes * 60_000
+          ).toISOString(),
+        }];
+      });
+    });
+
+    for (let index = 0; index < rows.length; index += 200) {
+      const { data: queued, error } = await admin
+        .from("automation_messages")
+        .upsert(rows.slice(index, index + 200), {
+          onConflict:
+            "store_id,automation_type,external_reference,routine_step_key",
+        })
+        .select("id");
+      if (error) throw error;
+      result.queued += queued?.length ?? 0;
+    }
+
+    const activeStepIds = new Set(activeSteps.map((step) => step.id));
+    const cancelledIds = ((messages ?? []) as ExistingAutomationMessage[])
+      .filter((message) => {
+        if (!["scheduled", "processing"].includes(message.status)) return false;
+        const order = ordersByExternalId.get(message.external_reference);
+        return !order || !isPendingPixOrder(order) || !activeStepIds.has(message.routine_step_key);
+      })
+      .map((message) => message.id);
+    for (let index = 0; index < cancelledIds.length; index += 200) {
+      const { data: cancelled, error } = await admin
+        .from("automation_messages")
+        .update({
+          status: "cancelled",
+          error_message: "Pedido pago, cancelado ou etapa desativada",
+        })
+        .in("id", cancelledIds.slice(index, index + 200))
+        .select("id");
+      if (error) throw error;
+      result.cancelled += cancelled?.length ?? 0;
+    }
+  }
+
+  return result;
+}
+
+function isPendingPixOrder(order: {
+  status?: string | null;
+  payment_status?: string | null;
+  payment_method?: string | null;
+  paid_at?: string | null;
+}): boolean {
+  const status = order.status?.toLowerCase();
+  return (
+    order.payment_status?.toLowerCase() === "pending" &&
+    order.payment_method?.toLowerCase() === "pix" &&
+    !order.paid_at &&
+    status !== "cancelled" &&
+    status !== "closed" &&
+    status !== "delivered"
+  );
+}
+
 export async function queuePostPurchaseMessage(
   admin: AdminClient,
   input: AutomationMessageInput
@@ -563,6 +751,7 @@ export async function sendScheduledAutomationMessages(
       .select(
         `store_id, abandoned_cart_enabled, abandoned_cart_delay_hours,
          abandoned_cart_whatsapp_template, abandoned_cart_sequence,
+         pending_payment_enabled, pending_payment_sequence,
          post_purchase_enabled, post_purchase_whatsapp_template,
          post_purchase_delay_minutes, post_purchase_attachment_type,
          post_purchase_attachment_url, post_sale_sequence,
@@ -599,6 +788,12 @@ export async function sendScheduledAutomationMessages(
             config.abandoned_cart_whatsapp_template
           ).find((step) => step.id === job.routine_step_key)
         : null;
+    const pendingPaymentStep =
+      type === "pending_payment" && config
+        ? parsePendingPaymentSequence(config.pending_payment_sequence).find(
+            (step) => step.id === job.routine_step_key
+          )
+        : null;
     const postSaleStep =
       type === "post_purchase" && config
         ? parsePostSaleSequence(config.post_sale_sequence, {
@@ -620,7 +815,9 @@ export async function sendScheduledAutomationMessages(
         ? config?.abandoned_cart_enabled && abandonedStep?.enabled
         : type === "birthday_collection"
           ? birthdayConfig?.birthday_collection_enabled && Boolean(job.link)
-        : postSaleStep?.enabled;
+          : type === "pending_payment"
+            ? config?.pending_payment_enabled && pendingPaymentStep?.enabled
+            : postSaleStep?.enabled;
 
     if (!store || !config || !enabled) {
       await admin
@@ -678,13 +875,32 @@ export async function sendScheduledAutomationMessages(
         : type === "birthday_collection"
           ? birthdayConfig?.birthday_collection_whatsapp_template ||
             DEFAULT_BIRTHDAY_COLLECTION_WHATSAPP_TEMPLATE
-        : postSaleStep?.messageTemplate ||
-          config.post_purchase_whatsapp_template ||
-          DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE;
+          : type === "pending_payment"
+            ? pendingPaymentStep?.message_template ||
+              DEFAULT_PENDING_PAYMENT_WHATSAPP_TEMPLATE
+            : postSaleStep?.messageTemplate ||
+              config.post_purchase_whatsapp_template ||
+              DEFAULT_POST_PURCHASE_WHATSAPP_TEMPLATE;
 
     try {
+      if (
+        type === "pending_payment" &&
+        !(await pendingPaymentStillOpen(admin, store, job.external_reference))
+      ) {
+        await admin
+          .from("automation_messages")
+          .update({
+            status: "cancelled",
+            error_message: "Pix pago, pedido cancelado ou pagamento indisponível",
+          })
+          .eq("id", job.id);
+        result.cancelled++;
+        continue;
+      }
+
       let couponCode =
-        type === "abandoned_cart" && abandonedStep?.coupon_enabled
+        (type === "abandoned_cart" && abandonedStep?.coupon_enabled) ||
+        (type === "pending_payment" && pendingPaymentStep?.coupon_enabled)
           ? job.coupon_code || ""
           : "";
       if (type === "abandoned_cart" && abandonedStep?.coupon_enabled) {
@@ -716,9 +932,39 @@ export async function sendScheduledAutomationMessages(
         }
       }
 
+      if (type === "pending_payment" && pendingPaymentStep?.coupon_enabled) {
+        if (!store.access_token) {
+          throw new Error("Conexão com a Nuvemshop ausente para criar o cupom");
+        }
+        if (!couponCode || !job.coupon_applied_at) {
+          const coupon = await ensureStoreCoupon(
+            store.external_store_id,
+            store.access_token,
+            {
+              code: automaticCouponCode(job.id, "PIX"),
+              type: pendingPaymentStep.coupon_type,
+              value: pendingPaymentStep.coupon_value,
+              validHours: pendingPaymentStep.coupon_valid_hours,
+              minPrice: pendingPaymentStep.coupon_min_price,
+            }
+          );
+          couponCode = coupon.code;
+          await admin
+            .from("automation_messages")
+            .update({
+              coupon_id: coupon.id,
+              coupon_code: coupon.code,
+              coupon_applied_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+        }
+      }
+
       const couponTemplate =
         couponCode && !template.includes("{{cupom}}")
-          ? `${template}\n\nUse o cupom *{{cupom}}* no seu carrinho.`
+          ? type === "pending_payment"
+            ? `${template}\n\nSe preferir refazer a compra, use o cupom *{{cupom}}*.`
+            : `${template}\n\nUse o cupom *{{cupom}}* no seu carrinho.`
           : template;
       const preparedTemplate = removeUnavailableTrackingLines(
         couponTemplate,
@@ -730,6 +976,7 @@ export async function sendScheduledAutomationMessages(
         "{{produtos}}": job.products_summary,
         "{{link}}": job.link || "",
         "{{link_carrinho}}": type === "abandoned_cart" ? job.link || "" : "",
+        "{{link_pagamento}}": type === "pending_payment" ? job.link || "" : "",
         "{{link_aniversario}}": type === "birthday_collection" ? job.link || "" : "",
         "{{loja}}": store.name,
         "{{pedido}}": job.reference_label || job.external_reference,
@@ -739,7 +986,9 @@ export async function sendScheduledAutomationMessages(
         "{{status_entrega}}": trackingStatusLabel(job.tracking_status),
         "{{desconto}}": abandonedStep
           ? couponDiscountLabel(abandonedStep)
-          : "",
+          : pendingPaymentStep
+            ? couponDiscountLabel(pendingPaymentStep)
+            : "",
       });
 
       // Repete a condição imediatamente antes do envio para cobrir o caso de o
@@ -757,6 +1006,21 @@ export async function sendScheduledAutomationMessages(
           .update({
             status: "cancelled",
             error_message: "Pedido fechado antes do envio",
+          })
+          .eq("id", job.id);
+        result.cancelled++;
+        continue;
+      }
+
+      if (
+        type === "pending_payment" &&
+        !(await pendingPaymentStillOpen(admin, store, job.external_reference))
+      ) {
+        await admin
+          .from("automation_messages")
+          .update({
+            status: "cancelled",
+            error_message: "Pix confirmado antes do envio",
           })
           .eq("id", job.id);
         result.cancelled++;
@@ -816,6 +1080,66 @@ async function abandonedCartStillOpen(
     .maybeSingle();
   if (error) throw error;
   return data?.status === "abandoned";
+}
+
+async function pendingPaymentStillOpen(
+  admin: AdminClient,
+  store: {
+    id: string;
+    external_store_id: string;
+    access_token: string | null;
+  },
+  externalOrderId: string
+): Promise<boolean> {
+  if (!store.access_token) {
+    throw new Error("Conexão com a Nuvemshop ausente");
+  }
+  const order = await fetchOrder(
+    store.external_store_id,
+    store.access_token,
+    externalOrderId
+  );
+  const pending = isPendingPixOrder({
+    status: order.status,
+    payment_status: order.payment_status,
+    payment_method: order.payment_details?.method,
+    paid_at: order.paid_at,
+  });
+  await admin
+    .from("orders")
+    .update({
+      status: order.status || "open",
+      payment_status: order.payment_status || null,
+      payment_method: order.payment_details?.method?.toLowerCase() || null,
+      paid_at: order.paid_at || null,
+    })
+    .eq("store_id", store.id)
+    .eq("external_order_id", externalOrderId);
+
+  if (!pending) {
+    await cancelPendingPaymentMessagesForOrder(admin, {
+      storeId: store.id,
+      externalOrderId,
+      reason: "Pix pago, pedido cancelado ou pagamento indisponível",
+    });
+  }
+  return pending;
+}
+
+export async function cancelPendingPaymentMessagesForOrder(
+  admin: AdminClient,
+  input: { storeId: string; externalOrderId: string; reason?: string }
+): Promise<void> {
+  await admin
+    .from("automation_messages")
+    .update({
+      status: "cancelled",
+      error_message: input.reason || null,
+    })
+    .eq("store_id", input.storeId)
+    .eq("automation_type", "pending_payment")
+    .eq("external_reference", input.externalOrderId)
+    .in("status", ["scheduled", "processing"]);
 }
 
 async function birthdayCollectionStillPending(
@@ -1020,6 +1344,176 @@ export async function sendManualAbandonedCartMessage(
       .eq("id", job.id);
     if (updateError) throw updateError;
 
+    return {
+      messageId: job.id,
+      status: "sent",
+      sentAt,
+      couponCode: couponCode || null,
+    };
+  } catch (error) {
+    await admin
+      .from("automation_messages")
+      .update({
+        status: "failed",
+        sent_at: null,
+        attempts: 1,
+        error_message: (error as Error).message.slice(0, 1000),
+      })
+      .eq("id", job.id);
+    throw error;
+  }
+}
+
+export async function sendManualPendingPaymentMessage(
+  admin: AdminClient,
+  input: { storeId: string; externalOrderId: string; stepId: string }
+): Promise<ManualPendingPaymentSendResult> {
+  const [
+    { data: store, error: storeError },
+    { data: config, error: configError },
+    { data: order, error: orderError },
+  ] = await Promise.all([
+    admin
+      .from("stores")
+      .select("id, name, external_store_id, access_token")
+      .eq("id", input.storeId)
+      .maybeSingle(),
+    admin
+      .from("store_settings")
+      .select("pending_payment_sequence, whatsapp_instance")
+      .eq("store_id", input.storeId)
+      .maybeSingle(),
+    admin
+      .from("orders")
+      .select(
+        `external_order_id, order_number, source_token, customer_name,
+         customer_phone, status, payment_status, payment_method, paid_at,
+         order_status_url, products_summary, product_image_url`
+      )
+      .eq("store_id", input.storeId)
+      .eq("external_order_id", input.externalOrderId)
+      .maybeSingle(),
+  ]);
+  if (storeError) throw storeError;
+  if (configError) throw configError;
+  if (orderError) throw orderError;
+  if (!store || !config || !order) throw new Error("Pedido não encontrado");
+  if (!order.customer_phone) {
+    throw new Error("O cliente não informou um número de WhatsApp");
+  }
+  if (!order.order_status_url) {
+    throw new Error("O link seguro deste pedido não está disponível");
+  }
+  if (!(await pendingPaymentStillOpen(admin, store, input.externalOrderId))) {
+    throw new Error("Este Pix já foi pago, cancelado ou não está mais disponível");
+  }
+
+  const steps = parsePendingPaymentSequence(config.pending_payment_sequence);
+  const stepIndex = steps.findIndex((step) => step.id === input.stepId);
+  const step = steps[stepIndex];
+  if (!step) throw new Error("Mensagem da rotina não encontrada");
+  const attachmentUrl =
+    step.attachment_type === "library"
+      ? step.attachment_url
+      : step.attachment_type === "product_image"
+        ? order.product_image_url
+        : null;
+  const startedAt = new Date().toISOString();
+  const { data: job, error: jobError } = await admin
+    .from("automation_messages")
+    .upsert(
+      {
+        store_id: input.storeId,
+        automation_type: "pending_payment",
+        external_reference: order.external_order_id,
+        reference_label: order.order_number || order.external_order_id,
+        source_token: order.source_token || null,
+        customer_name: order.customer_name || "Cliente",
+        customer_phone: order.customer_phone,
+        products_summary: order.products_summary || "seus produtos",
+        link: order.order_status_url,
+        routine_step_key: step.id,
+        sequence_step: stepIndex + 1,
+        status: "processing",
+        scheduled_for: startedAt,
+        sent_at: null,
+        attempts: 0,
+        error_message: null,
+        attachment_type: attachmentUrl ? "image" : "none",
+        attachment_url: attachmentUrl,
+      },
+      {
+        onConflict:
+          "store_id,automation_type,external_reference,routine_step_key",
+      }
+    )
+    .select("id, coupon_code, coupon_applied_at")
+    .single();
+  if (jobError) throw jobError;
+
+  try {
+    let couponCode = step.coupon_enabled ? job.coupon_code || "" : "";
+    if (step.coupon_enabled && (!couponCode || !job.coupon_applied_at)) {
+      if (!store.access_token) {
+        throw new Error("Conexão com a Nuvemshop ausente para criar o cupom");
+      }
+      const coupon = await ensureStoreCoupon(
+        store.external_store_id,
+        store.access_token,
+        {
+          code: automaticCouponCode(job.id, "PIX"),
+          type: step.coupon_type,
+          value: step.coupon_value,
+          validHours: step.coupon_valid_hours,
+          minPrice: step.coupon_min_price,
+        }
+      );
+      couponCode = coupon.code;
+      await admin
+        .from("automation_messages")
+        .update({
+          coupon_id: coupon.id,
+          coupon_code: coupon.code,
+          coupon_applied_at: new Date().toISOString(),
+        })
+        .eq("id", job.id);
+    }
+
+    const template =
+      couponCode && !step.message_template.includes("{{cupom}}")
+        ? `${step.message_template}\n\nSe preferir refazer a compra, use o cupom *{{cupom}}*.`
+        : step.message_template;
+    const message = replaceTemplate(template, {
+      "{{nome}}": firstName(order.customer_name || "Cliente"),
+      "{{produtos}}": order.products_summary || "seus produtos",
+      "{{link}}": order.order_status_url,
+      "{{link_pagamento}}": order.order_status_url,
+      "{{loja}}": store.name,
+      "{{pedido}}": order.order_number || order.external_order_id,
+      "{{cupom}}": couponCode,
+      "{{desconto}}": couponDiscountLabel(step),
+    });
+
+    if (!(await pendingPaymentStillOpen(admin, store, input.externalOrderId))) {
+      throw new Error("O Pix foi confirmado antes do envio");
+    }
+    await sendWhatsApp({
+      phone: order.customer_phone,
+      message,
+      instance: config.whatsapp_instance,
+      mediaUrl: attachmentUrl,
+    });
+    const sentAt = new Date().toISOString();
+    const { error: updateError } = await admin
+      .from("automation_messages")
+      .update({
+        status: "sent",
+        sent_at: sentAt,
+        attempts: 1,
+        error_message: null,
+      })
+      .eq("id", job.id);
+    if (updateError) throw updateError;
     return {
       messageId: job.id,
       status: "sent",
@@ -1275,6 +1769,19 @@ export function serializeAbandonedCartSequence(
   return parseAbandonedCartSequence(steps);
 }
 
+export function parsePendingPaymentSequence(
+  value: unknown
+): StoredAbandonedCartStep[] {
+  const source = Array.isArray(value) && value.length
+    ? value
+    : DEFAULT_PENDING_PAYMENT_SEQUENCE;
+  return parseAbandonedCartSequence(
+    source,
+    DEFAULT_PENDING_PAYMENT_SEQUENCE[0].delayMinutes / 60,
+    DEFAULT_PENDING_PAYMENT_WHATSAPP_TEMPLATE
+  );
+}
+
 export function summarizeProducts(
   products: Array<{ name?: string | null; quantity?: number | null }>
 ): string {
@@ -1316,9 +1823,9 @@ function resolveCartAttachmentUrl(
   return null;
 }
 
-function automaticCouponCode(jobId: string): string {
+function automaticCouponCode(jobId: string, prefix = "CAR"): string {
   const uniqueSuffix = jobId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
-  return `CAR${uniqueSuffix}`.toUpperCase();
+  return `${prefix}${uniqueSuffix}`.toUpperCase();
 }
 
 function couponDiscountLabel(step: StoredAbandonedCartStep): string {
