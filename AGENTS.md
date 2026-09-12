@@ -21,6 +21,10 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   endpoints oficiais vinculados ao pedido na API estável `2025-03`. O botão de
   registrar webhooks não bloqueia mais todos os eventos quando somente a
   checagem de fulfillment falha.
+- Kits nativos com visibilidade `unlisted` são considerados disponíveis pelo
+  aplicativo. A Nuvemshop envia `published=false` tanto para `unlisted` quanto
+  para `hidden`; por isso a importação usa `visibility` como fonte de verdade e
+  só desativa kits realmente ocultos ou inválidos.
 - A entrega atual adiciona suporte aos **kits nativos da Nuvemshop**. Como a API
   oficial é somente leitura, o kit continua sendo criado/editado no painel da
   Nuvemshop e depois é reconhecido em `/kits` pelo link ou ID. O aplicativo
