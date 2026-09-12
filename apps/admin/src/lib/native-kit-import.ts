@@ -109,13 +109,10 @@ export async function importNativeKit(
     .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
     .map((image) => image.src)
     .filter(Boolean);
-  // Kits nativos usados como oferta costumam ser `unlisted`: não aparecem na
-  // busca/categorias, mas continuam compráveis pelo link direto. Nesse estado a
-  // Nuvemshop mantém `published=false`, portanto visibility é a fonte correta.
-  const availableByVisibility = nativeKit.visibility
-    ? nativeKit.visibility !== "hidden"
-    : nativeKit.published === true;
-  const active = availableByVisibility && !nativeKit.invalid_at;
+  const active =
+    nativeKit.published === true &&
+    nativeKit.visibility !== "hidden" &&
+    !nativeKit.invalid_at;
 
   const row = {
     store_id: store.id,
