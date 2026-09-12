@@ -14,7 +14,13 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 ## 0. Estado de continuidade (11/09/2026)
 
 - Branch de trabalho: `main`. O último commit antes da entrega atual era
-  `0c611ff`.
+  `5eb4748`.
+- A entrega atual corrige os webhooks recusados com HTTP 401: a assinatura
+  `x-linkedstore-hmac-sha256` da Nuvemshop é hexadecimal e deve ser validada com
+  `NUVEMSHOP_CLIENT_SECRET`. A checagem e a leitura de fulfillment agora usam os
+  endpoints oficiais vinculados ao pedido na API estável `2025-03`. O botão de
+  registrar webhooks não bloqueia mais todos os eventos quando somente a
+  checagem de fulfillment falha.
 - A entrega atual adiciona suporte aos **kits nativos da Nuvemshop**. Como a API
   oficial é somente leitura, o kit continua sendo criado/editado no painel da
   Nuvemshop e depois é reconhecido em `/kits` pelo link ou ID. O aplicativo
@@ -361,7 +367,7 @@ NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY
 NEXT_PUBLIC_APP_URL=https://app.mesafy.shop   # em dev: http://localhost:3000
 
 # Nuvemshop (CLIENT_ID=37558 público; CLIENT_SECRET é SEGREDO)
-NUVEMSHOP_CLIENT_ID / NUVEMSHOP_CLIENT_SECRET / NUVEMSHOP_WEBHOOK_SECRET
+NUVEMSHOP_CLIENT_ID / NUVEMSHOP_CLIENT_SECRET
 
 # Envio (ainda não configurados — ver Pendências)
 RESEND_API_KEY / RESEND_FROM_EMAIL

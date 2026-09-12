@@ -171,6 +171,7 @@ export async function POST(req: NextRequest) {
   const fulfillment = await resolveFulfillment(
     externalStoreId,
     store.access_token,
+    externalOrderId,
     payload.fulfillment_id,
     order.fulfillments
   );
@@ -526,12 +527,13 @@ async function handleCustomerWebhook(input: {
 async function resolveFulfillment(
   storeId: string,
   token: string,
+  orderId: string,
   fulfillmentId: string | undefined,
   fulfillments: NuvemshopFulfillmentOrder[] | undefined
 ): Promise<NuvemshopFulfillmentOrder | null> {
   if (fulfillmentId) {
     try {
-      return await fetchFulfillmentOrder(storeId, token, fulfillmentId);
+      return await fetchFulfillmentOrder(storeId, token, orderId, fulfillmentId);
     } catch {
       // O webhook ainda pode ser processado com o status que veio no payload.
     }
@@ -685,9 +687,12 @@ function isValidSignature(body: string, signature: string | null): boolean {
   if (!secret) return process.env.NODE_ENV !== "production";
   if (!signature) return false;
 
-  const expected = createHmac("sha256", secret).update(body).digest("base64");
-  const expectedBuffer = Buffer.from(expected);
-  const signatureBuffer = Buffer.from(signature);
+  // A Nuvemshop envia o HMAC-SHA256 como texto hexadecimal (64 caracteres).
+  // Usar Base64 aqui fazia todo webhook legítimo ser recusado com HTTP 401.
+  const expected = createHmac("sha256", secret).update(body).digest("hex");
+  const received = signature.trim().toLowerCase();
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  const signatureBuffer = Buffer.from(received, "utf8");
   return (
     expectedBuffer.length === signatureBuffer.length &&
     timingSafeEqual(expectedBuffer, signatureBuffer)

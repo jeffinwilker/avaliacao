@@ -627,13 +627,15 @@ export async function fetchRecentOrders(
 export async function fetchFulfillmentOrder(
   storeId: string,
   token: string,
+  orderId: string,
   fulfillmentId: string
 ): Promise<NuvemshopFulfillmentOrder> {
-  return request<NuvemshopFulfillmentOrder>(
+  return requestAtBase<NuvemshopFulfillmentOrder>(
+    STABLE_BASE,
     "GET",
     storeId,
     token,
-    `/fulfillment-orders/${fulfillmentId}`
+    `/orders/${orderId}/fulfillment-orders/${fulfillmentId}`
   );
 }
 
@@ -641,12 +643,26 @@ export async function checkFulfillmentOrderAccess(
   storeId: string,
   token: string
 ): Promise<void> {
-  await request<NuvemshopFulfillmentOrder[]>(
+  const orders = await request<Array<{ id: number }>>(
     "GET",
     storeId,
     token,
-    "/fulfillment-orders",
-    { params: { page: 1, per_page: 1 } }
+    "/orders",
+    { params: { page: 1, per_page: 1, fields: "id", status: "any" } }
+  );
+
+  // A API de fulfillment não oferece um endpoint geral para essa leitura: a
+  // consulta é sempre vinculada a um pedido. Sem pedidos, não há recurso para
+  // testar e a permissão não deve ser marcada como ausente.
+  const orderId = orders[0]?.id;
+  if (!orderId) return;
+
+  await requestAtBase<NuvemshopFulfillmentOrder[]>(
+    STABLE_BASE,
+    "GET",
+    storeId,
+    token,
+    `/orders/${orderId}/fulfillment-orders`
   );
 }
 

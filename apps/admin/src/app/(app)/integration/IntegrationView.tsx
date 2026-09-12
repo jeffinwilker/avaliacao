@@ -377,7 +377,7 @@ function WebhookSection({ installUrl }: { installUrl: string | null }) {
           type="button"
           onClick={register}
           disabled={
-            state === "saving" || !access.orders || !access.fulfillmentOrders
+            state === "saving" || access.checking || !access.orders
           }
           className="bg-brand-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
         >
