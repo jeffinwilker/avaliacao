@@ -19,6 +19,7 @@ export type AppIconName =
   | "chat"
   | "check-circle"
   | "trend"
+  | "calculator"
   | "user";
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {
@@ -164,6 +165,13 @@ function IconPaths({ name }: { name: AppIconName }) {
         <>
           <path d="M4 17 10 11l4 4 6-8" />
           <path d="M15 7h5v5" />
+        </>
+      );
+    case "calculator":
+      return (
+        <>
+          <rect x="4" y="2.5" width="16" height="19" rx="2.5" />
+          <path d="M7.5 6.5h9v3h-9zM8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01" />
         </>
       );
     case "user":

@@ -26,6 +26,7 @@ const sectionTitles = [
   { path: "/kits", title: "Kits de produtos", group: "Gestão" },
   { path: "/products/colors", title: "Importar cores e SKUs", group: "Gestão" },
   { path: "/products", title: "Produtos", group: "Gestão" },
+  { path: "/commissions", title: "Comissões", group: "Gestão" },
   { path: "/customers", title: "Clientes", group: "Gestão" },
   { path: "/reels", title: "Reels dos produtos", group: "Gestão" },
   { path: "/import", title: "Importar avaliações", group: "Gestão" },

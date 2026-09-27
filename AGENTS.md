@@ -11,7 +11,7 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 > (até peso/dimensões) e as **automações de WhatsApp** (carrinho abandonado +
 > pós-venda). Fase 5 de estoque de kit via webhook ainda pendente.
 
-## 0. Estado de continuidade (11/09/2026)
+## 0. Estado de continuidade (27/09/2026)
 
 - Branch de trabalho: `main`. O último commit antes da entrega atual era
   `5eb4748`.
@@ -83,6 +83,12 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   SKU vira Novo SKU e produto/opções são separados na análise. A seleção da
   variação compara nomes e valores dos atributos, independentemente da ordem.
   Nomes de produtos ambíguos continuam exigindo revisão ou ID explícito.
+- A área de gestão agora possui **Comissões** em `/commissions`. Ela consulta os
+  pedidos pagos diretamente na Nuvemshop por período, soma o valor efetivamente
+  recebido, desconta o custo de frete suportado pela loja
+  (`shipping_cost_owner`) e permite informar outros custos e o percentual da
+  comissão. O demonstrativo mostra a conta completa e os pedidos considerados.
+  Não usa migration.
 - A migration `0018_fix_automation_message_sequence_constraint.sql` foi criada e
   ainda precisa ser executada em produção. Ela remove a restrição legada que
   impedia mais de uma etapa por carrinho e reinicia o corte das rotinas ativas
@@ -261,6 +267,16 @@ checkout nativo, frete). O nosso sistema cria/atualiza esse produto automaticame
   e senha inicial e pode remover membros. Todos acessam e administram a mesma loja;
   o papel `owner` só identifica o administrador principal e não pode ser removido.
   Vínculos em `store_members`, contas no Supabase Auth.
+
+### Comissões
+- Tela `/commissions` com filtros por período e atalhos para mês atual, mês
+  anterior e últimos 30 dias.
+- Considera apenas pedidos com pagamento confirmado e não cancelados. A base é
+  o valor pago pelo cliente menos o custo real de frete da loja e os outros
+  custos preenchidos manualmente. Sobre o resultado aplica o percentual de
+  comissão e mostra também o saldo restante.
+- A consulta é feita ao vivo na Nuvemshop pelo endpoint autenticado
+  `/api/commissions/summary`; não depende de tabela ou migration adicional.
 
 ### Automação de mensagens (WhatsApp/e-mail)
 - **Solicitação de avaliação pós-compra**: o webhook cria `review_requests` com delay;

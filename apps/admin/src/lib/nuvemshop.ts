@@ -83,7 +83,13 @@ export interface NuvemshopOrder {
   } | null;
   gateway?: string | null;
   checkout_enabled?: boolean;
+  subtotal?: string | number | null;
   total?: string | number | null;
+  total_paid?: string | number | null;
+  total_paid_by_customer?: string | number | null;
+  total_paid_by_customer_including_fees?: string | number | null;
+  shipping_cost_owner?: string | number | null;
+  shipping_cost_customer?: string | number | null;
   currency?: string | null;
   shipping_status?: string;
   shipping_tracking_number?: string | null;
@@ -627,6 +633,47 @@ export async function fetchRecentOrders(
 
     all.push(...batch);
     if (batch.length < Number(params.per_page)) break;
+    page++;
+  }
+
+  return all;
+}
+
+/**
+ * Busca os pedidos criados dentro de um período fechado. Esta consulta é usada
+ * no demonstrativo de comissões para trabalhar com os valores financeiros mais
+ * recentes da Nuvemshop, sem depender de uma nova migration no banco local.
+ */
+export async function fetchOrdersByPeriod(
+  storeId: string,
+  token: string,
+  input: { createdAtMin: string; createdAtMax: string; maxOrders?: number }
+): Promise<NuvemshopOrder[]> {
+  const maxOrders = Math.max(1, Math.min(10_000, input.maxOrders ?? 5_000));
+  const perPage = Math.min(200, maxOrders);
+  const all: NuvemshopOrder[] = [];
+  let page = 1;
+
+  while (all.length < maxOrders) {
+    const requested = Math.min(perPage, maxOrders - all.length);
+    const batch = await request<NuvemshopOrder[]>(
+      "GET",
+      storeId,
+      token,
+      "/orders",
+      {
+        params: {
+          page,
+          per_page: requested,
+          status: "any",
+          created_at_min: input.createdAtMin,
+          created_at_max: input.createdAtMax,
+        },
+      }
+    );
+
+    all.push(...batch);
+    if (batch.length < requested) break;
     page++;
   }
 
