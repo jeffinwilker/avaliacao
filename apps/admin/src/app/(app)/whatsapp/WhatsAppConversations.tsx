@@ -6,10 +6,20 @@ import type {
   WhatsAppMessageView,
 } from "@/lib/evolution-chat";
 
+type ClientMessage = WhatsAppMessageView & {
+  localState?: "sending" | "sent" | "failed";
+  localFile?: File | null;
+  localText?: string;
+};
+
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const QUICK_EMOJIS = ["😊", "😍", "👍", "🙏", "🎉", "❤️", "😂", "👏"];
+
 export function WhatsAppConversations() {
   const [chats, setChats] = useState<WhatsAppChatSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<WhatsAppMessageView[]>([]);
+  const [messages, setMessages] = useState<ClientMessage[]>([]);
   const [search, setSearch] = useState("");
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -17,9 +27,20 @@ export function WhatsAppConversations() {
   const [messageError, setMessageError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [selectedImage, setSelectedImage] = useState<{
+    file: File;
+    previewUrl: string;
+  } | null>(null);
+  const [sending, setSending] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const chatsRunning = useRef(false);
   const messagesRequestId = useRef(0);
   const messagesViewport = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const localImageUrls = useRef(new Set<string>());
 
   const selectedChat = useMemo(
     () => chats.find((chat) => chat.id === selectedId) ?? null,
@@ -91,7 +112,8 @@ export function WhatsAppConversations() {
         );
       }
       if (requestId !== messagesRequestId.current) return;
-      setMessages(Array.isArray(result.messages) ? result.messages : []);
+      const remoteMessages = Array.isArray(result.messages) ? result.messages : [];
+      setMessages((current) => mergeMessages(remoteMessages, current));
       setMessageError(null);
       setLastUpdatedAt(new Date());
     } catch (error) {
@@ -128,6 +150,13 @@ export function WhatsAppConversations() {
       return;
     }
     setMessages([]);
+    setDraft("");
+    setComposerError(null);
+    setEmojiOpen(false);
+    setSelectedImage((current) => {
+      if (current) releaseLocalImage(current.previewUrl, localImageUrls.current);
+      return null;
+    });
     void loadMessages(selectedId);
     const refresh = () => {
       if (document.visibilityState === "visible") {
@@ -145,7 +174,200 @@ export function WhatsAppConversations() {
       if (viewport) viewport.scrollTop = viewport.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [loadingMessages, selectedId]);
+  }, [loadingMessages, messages.length, selectedId]);
+
+  useEffect(() => {
+    const urls = localImageUrls.current;
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+      urls.clear();
+    };
+  }, []);
+
+  function chooseImage(file: File | null) {
+    if (!file) return;
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      setComposerError("Escolha uma imagem JPG, PNG ou WEBP.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      setComposerError("A imagem pode ter no máximo 10 MB.");
+      return;
+    }
+    setSelectedImage((current) => {
+      if (current) releaseLocalImage(current.previewUrl, localImageUrls.current);
+      const previewUrl = URL.createObjectURL(file);
+      localImageUrls.current.add(previewUrl);
+      return { file, previewUrl };
+    });
+    setComposerError(null);
+  }
+
+  function removeSelectedImage() {
+    setSelectedImage((current) => {
+      if (current) releaseLocalImage(current.previewUrl, localImageUrls.current);
+      return null;
+    });
+  }
+
+  function insertEmoji(emoji: string) {
+    const input = composerInput.current;
+    if (!input) {
+      setDraft((current) => `${current}${emoji}`);
+      return;
+    }
+    const start = input.selectionStart ?? draft.length;
+    const end = input.selectionEnd ?? start;
+    setDraft(`${draft.slice(0, start)}${emoji}${draft.slice(end)}`);
+    window.requestAnimationFrame(() => {
+      input.focus();
+      input.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  }
+
+  function wrapSelection(prefix: string, suffix = prefix) {
+    const input = composerInput.current;
+    if (!input) return;
+    const start = input.selectionStart ?? 0;
+    const end = input.selectionEnd ?? start;
+    const selected = draft.slice(start, end);
+    const next = `${draft.slice(0, start)}${prefix}${selected}${suffix}${draft.slice(end)}`;
+    setDraft(next);
+    window.requestAnimationFrame(() => {
+      input.focus();
+      const cursor = selected
+        ? end + prefix.length + suffix.length
+        : start + prefix.length;
+      input.setSelectionRange(cursor, cursor);
+    });
+  }
+
+  async function submitOutgoing(input: {
+    text: string;
+    file?: File | null;
+    previewUrl?: string | null;
+    existingId?: string;
+    clearComposer?: boolean;
+  }) {
+    if (!selectedId || sending) return;
+    const text = input.text.trim();
+    const file = input.file ?? null;
+    if (!text && !file) return;
+
+    const temporaryId = input.existingId || `local:${crypto.randomUUID()}`;
+    const optimistic: ClientMessage = {
+      id: temporaryId,
+      fromMe: true,
+      text: text || "Imagem",
+      type: file ? "imageMessage" : "conversation",
+      mediaKind: file ? "image" : null,
+      mediaUrl: input.previewUrl || null,
+      sentAt: new Date().toISOString(),
+      status: "PENDING",
+      localState: "sending",
+      localFile: file,
+      localText: text,
+    };
+
+    setSending(true);
+    setComposerError(null);
+    setMessages((current) =>
+      input.existingId
+        ? current.map((message) =>
+            message.id === input.existingId ? { ...message, localState: "sending" } : message
+          )
+        : [...current, optimistic]
+    );
+
+    const formData = new FormData();
+    formData.set("jid", selectedId);
+    formData.set("text", text);
+    if (file) formData.set("image", file, file.name);
+
+    try {
+      const response = await fetch("/api/whatsapp/messages", {
+        method: "POST",
+        body: formData,
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        message?: WhatsAppMessageView;
+        error?: string;
+      };
+      if (!response.ok || !result.message) {
+        throw new Error(result.error || "Não foi possível enviar a mensagem");
+      }
+
+      const confirmed: ClientMessage = {
+        ...result.message,
+        mediaUrl: file ? input.previewUrl || null : result.message.mediaUrl,
+        localState: "sent",
+        localFile: file,
+        localText: text,
+      };
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === temporaryId ? confirmed : message
+        )
+      );
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === selectedId
+            ? {
+                ...chat,
+                lastMessage: text || "Imagem",
+                lastMessageFromMe: true,
+                lastMessageAt: confirmed.sentAt,
+              }
+            : chat
+        )
+      );
+
+      if (input.clearComposer) {
+        setDraft("");
+        setSelectedImage(null);
+        setEmojiOpen(false);
+      }
+      window.setTimeout(() => {
+        void loadMessages(selectedId, true);
+        void loadChats(true);
+      }, 1_200);
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "Não foi possível enviar a mensagem";
+      setComposerError(message);
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === temporaryId ? { ...item, localState: "failed", status: "ERROR" } : item
+        )
+      );
+      if (input.clearComposer) {
+        setDraft("");
+        setSelectedImage(null);
+        setEmojiOpen(false);
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function sendCurrentMessage() {
+    void submitOutgoing({
+      text: draft,
+      file: selectedImage?.file,
+      previewUrl: selectedImage?.previewUrl,
+      clearComposer: true,
+    });
+  }
+
+  function retryMessage(message: ClientMessage) {
+    void submitOutgoing({
+      text: message.localText ?? message.text,
+      file: message.localFile,
+      previewUrl: message.mediaUrl,
+      existingId: message.id,
+    });
+  }
 
   return (
     <div className="space-y-5 p-5 md:p-8">
@@ -153,12 +375,12 @@ export function WhatsAppConversations() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-950">Conversas do WhatsApp</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Consulte as mensagens da instância conectada sem enviar respostas pelo painel.
+            Consulte o histórico e responda usando a instância conectada.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600">
-            Somente leitura
+            Envio ativo
           </span>
           <button
             type="button"
@@ -297,6 +519,7 @@ export function WhatsAppConversations() {
                           <MessageBubble
                             message={message}
                             onOpenImage={setPreviewImage}
+                            onRetry={retryMessage}
                           />
                         </Fragment>
                       );
@@ -314,8 +537,145 @@ export function WhatsAppConversations() {
                 </div>
               </div>
 
-              <footer className="border-t border-zinc-200 bg-white px-4 py-3 text-center text-xs text-zinc-500">
-                Visualização somente leitura · para responder, use o WhatsApp conectado.
+              <footer className="relative border-t border-zinc-200 bg-white px-3 py-3 sm:px-4">
+                {emojiOpen && (
+                  <div className="absolute bottom-full left-4 z-10 mb-2 flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-white p-2 shadow-xl">
+                    {QUICK_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => insertEmoji(emoji)}
+                        className="grid h-9 w-9 place-items-center rounded-lg text-xl hover:bg-zinc-100"
+                        aria-label={`Inserir ${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {selectedImage && (
+                  <div className="mb-2 flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-2.5">
+                    <img
+                      src={selectedImage.previewUrl}
+                      alt="Imagem selecionada para envio"
+                      className="h-14 w-14 rounded-lg object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-medium text-zinc-800">
+                        {selectedImage.file.name}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500">
+                        {formatFileSize(selectedImage.file.size)} · imagem pronta para enviar
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={removeSelectedImage}
+                      disabled={sending}
+                      className="grid h-8 w-8 place-items-center rounded-full text-lg text-zinc-500 hover:bg-zinc-200 disabled:opacity-50"
+                      aria-label="Remover imagem"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+
+                {composerError && (
+                  <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {composerError}
+                  </div>
+                )}
+
+                <div className="mb-2 flex items-center gap-1 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setEmojiOpen((current) => !current)}
+                    className={`rounded-md px-2 py-1 text-sm transition ${emojiOpen ? "bg-zinc-200" : "text-zinc-500 hover:bg-zinc-100"}`}
+                    aria-label="Escolher emoji"
+                  >
+                    😊
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => wrapSelection("*")}
+                    className="rounded-md px-2 py-1 text-xs font-bold text-zinc-600 hover:bg-zinc-100"
+                    title="Negrito"
+                  >
+                    B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => wrapSelection("_")}
+                    className="rounded-md px-2 py-1 text-xs italic text-zinc-600 hover:bg-zinc-100"
+                    title="Itálico"
+                  >
+                    I
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => wrapSelection("~")}
+                    className="rounded-md px-2 py-1 text-xs line-through text-zinc-600 hover:bg-zinc-100"
+                    title="Riscado"
+                  >
+                    S
+                  </button>
+                  <span className="ml-auto text-[10px] text-zinc-400">
+                    Enter envia · Shift + Enter quebra a linha
+                  </span>
+                </div>
+
+                <div className="flex items-end gap-2">
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(event) => {
+                      chooseImage(event.target.files?.[0] ?? null);
+                      event.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInput.current?.click()}
+                    disabled={sending}
+                    className="grid h-11 w-11 flex-none place-items-center rounded-full text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50"
+                    aria-label="Anexar imagem"
+                    title="Anexar imagem"
+                  >
+                    <AttachmentIcon />
+                  </button>
+                  <textarea
+                    ref={composerInput}
+                    value={draft}
+                    onChange={(event) => {
+                      setDraft(event.target.value.slice(0, 4_000));
+                      if (composerError) setComposerError(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        sendCurrentMessage();
+                      }
+                    }}
+                    rows={1}
+                    maxLength={4_000}
+                    disabled={sending}
+                    placeholder={selectedImage ? "Adicione uma legenda..." : "Digite uma mensagem"}
+                    className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-5 text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 focus:bg-white disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={sendCurrentMessage}
+                    disabled={sending || (!draft.trim() && !selectedImage)}
+                    className="grid h-11 w-11 flex-none place-items-center rounded-full bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={sending ? "Enviando mensagem" : "Enviar mensagem"}
+                    title="Enviar mensagem"
+                  >
+                    {sending ? <SendingSpinner /> : <SendIcon />}
+                  </button>
+                </div>
               </footer>
             </>
           ) : (
@@ -328,7 +688,7 @@ export function WhatsAppConversations() {
                   Selecione uma conversa
                 </h2>
                 <p className="mt-1 text-sm text-zinc-500">
-                  O histórico aparecerá aqui sem permitir envios pelo painel.
+                  O histórico aparecerá aqui e você poderá responder pelo painel.
                 </p>
               </div>
             </div>
@@ -348,9 +708,11 @@ export function WhatsAppConversations() {
 function MessageBubble({
   message,
   onOpenImage,
+  onRetry,
 }: {
-  message: WhatsAppMessageView;
+  message: ClientMessage;
   onOpenImage: (src: string) => void;
+  onRetry: (message: ClientMessage) => void;
 }) {
   const hasImage = Boolean(message.mediaUrl);
   const showText = !hasImage || !["Imagem", "Figurinha", "Mensagem"].includes(message.text);
@@ -358,7 +720,11 @@ function MessageBubble({
     <div className={`flex ${message.fromMe ? "justify-end" : "justify-start"}`}>
       <div
         className={`max-w-[86%] rounded-xl p-1.5 shadow-sm sm:max-w-[72%] ${
-          message.fromMe ? "rounded-tr-sm bg-[#d9fdd3]" : "rounded-tl-sm bg-white"
+          message.localState === "failed"
+            ? "rounded-tr-sm border border-red-200 bg-red-50"
+            : message.fromMe
+              ? "rounded-tr-sm bg-[#d9fdd3]"
+              : "rounded-tl-sm bg-white"
         }`}
       >
         {message.mediaUrl && (
@@ -373,9 +739,24 @@ function MessageBubble({
             {message.text}
           </div>
         )}
-        <div className="mt-1 flex items-center justify-end gap-1 px-1 text-[10px] text-zinc-400">
+        <div className="mt-1 flex items-center justify-end gap-1.5 px-1 text-[10px] text-zinc-400">
           <span>{formatMessageTime(message.sentAt)}</span>
-          {message.fromMe && <span>{statusMark(message.status)}</span>}
+          {message.localState === "sending" ? (
+            <span>Enviando...</span>
+          ) : message.localState === "failed" ? (
+            <>
+              <span className="text-red-600">Não enviada</span>
+              <button
+                type="button"
+                onClick={() => onRetry(message)}
+                className="font-semibold text-red-700 underline underline-offset-2"
+              >
+                Tentar novamente
+              </button>
+            </>
+          ) : message.fromMe ? (
+            <span>{statusMark(message.status)}</span>
+          ) : null}
         </div>
       </div>
     </div>
@@ -562,6 +943,34 @@ function statusMark(status: string | null): string {
   return "✓";
 }
 
+function mergeMessages(
+  remoteMessages: WhatsAppMessageView[],
+  currentMessages: ClientMessage[]
+): ClientMessage[] {
+  const remoteIds = new Set(remoteMessages.map((message) => message.id));
+  const now = Date.now();
+  const localMessages = currentMessages.filter((message) => {
+    if (!message.localState || remoteIds.has(message.id)) return false;
+    if (message.localState === "failed") return true;
+    const age = now - new Date(message.sentAt).getTime();
+    return Number.isFinite(age) && age < 2 * 60_000;
+  });
+  return [...remoteMessages, ...localMessages].sort(
+    (left, right) =>
+      new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime()
+  );
+}
+
+function releaseLocalImage(url: string, urls: Set<string>) {
+  URL.revokeObjectURL(url);
+  urls.delete(url);
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+}
+
 function SearchIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -585,5 +994,31 @@ function ChatIcon() {
       <path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 9.5 9.5 0 0 1-4-.9L3 21l1.6-4.3A8.5 8.5 0 1 1 21 11.5Z" />
       <path d="M8 12h.01M12 12h.01M16 12h.01" />
     </svg>
+  );
+}
+
+function AttachmentIcon() {
+  return (
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.6-8.6" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m22 2-7 20-4-9-9-4 20-7Z" />
+      <path d="M22 2 11 13" />
+    </svg>
+  );
+}
+
+function SendingSpinner() {
+  return (
+    <span
+      className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+      aria-hidden="true"
+    />
   );
 }

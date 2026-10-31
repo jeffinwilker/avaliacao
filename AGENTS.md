@@ -50,13 +50,15 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   minutos. Ele mantém carrinhos, envios de automação e pedidos de avaliação
   funcionando com o painel fechado. A lista de carrinhos também sincroniza ao
   abrir, a cada cinco minutos e se redesenha a cada minuto enquanto estiver visível.
-- A área **Automações → Conversas** oferece uma caixa de entrada somente para
-  leitura do histórico salvo pela Evolution API. Ela mostra as conversas diretas,
+- A área **Automações → Conversas** oferece uma caixa de entrada integrada à
+  Evolution API. Ela mostra as conversas diretas,
   busca por cliente/telefone/mensagem, organiza o histórico por dia e atualiza a
   lista e a conversa aberta automaticamente. Imagens e figurinhas são recuperadas
-  sob demanda pelo servidor, aparecem nas bolhas e abrem ampliadas. Não permite
-  responder pelo painel, não expõe a chave da Evolution ao navegador e não duplica
-  as mensagens no banco do aplicativo.
+  sob demanda pelo servidor, aparecem nas bolhas e abrem ampliadas. O painel agora
+  envia textos e imagens JPG/PNG/WEBP de até 10 MB, com legenda, emojis, formatação
+  do WhatsApp, estado otimista e retentativa de falhas. A chave da Evolution não é
+  exposta ao navegador e as mensagens continuam no histórico da própria Evolution,
+  sem duplicação no banco do aplicativo. Não usa migration.
 - A sincronização automática agora também alcança os pedidos: o worker busca as
   compras recentes, atualiza entrega/rastreio e cria de forma idempotente os
   convites de avaliação das entregas dos últimos sete dias. A tela de pedidos
