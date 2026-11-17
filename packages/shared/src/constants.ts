@@ -98,6 +98,15 @@ Cadastre sua data por aqui:
 
 É rapidinho.`;
 
+export const DEFAULT_BLACK_FRIDAY_GROUP_WHATSAPP_TEMPLATE = `Oi {{nome}}! 🖤
+
+Como você já é cliente da {{loja}}, queremos te convidar para o nosso grupo VIP de ofertas da Black Friday.
+
+Entre no grupo por aqui:
+{{link_grupo}}
+
+Vamos avisar as melhores ofertas primeiro por lá.`;
+
 export const DEFAULT_POST_SALE_SEQUENCE = [
   {
     id: "order_created" as const,
@@ -114,6 +123,15 @@ export const DEFAULT_POST_SALE_SEQUENCE = [
     enabled: false,
     attachmentType: "none" as const,
     attachmentUrl: null,
+  },
+  {
+    id: "black_friday_group" as const,
+    delayMinutes: 60,
+    messageTemplate: DEFAULT_BLACK_FRIDAY_GROUP_WHATSAPP_TEMPLATE,
+    enabled: false,
+    attachmentType: "none" as const,
+    attachmentUrl: null,
+    linkUrl: null,
   },
   {
     id: "order_packed" as const,

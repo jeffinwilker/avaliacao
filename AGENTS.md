@@ -38,7 +38,7 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - Os editores de mensagem ganharam barra de formatação compatível com WhatsApp
   (negrito, itálico, riscado, monoespaçado e listas). As variáveis de destino
   agora são explícitas: `{{link_carrinho}}`, `{{link_avaliacao}}`,
-  `{{link_aniversario}}` e `{{link_rastreio}}`; `{{link}}` continua sendo
+  `{{link_aniversario}}`, `{{link_rastreio}}` e `{{link_grupo}}`; `{{link}}` continua sendo
   substituída somente para compatibilidade com mensagens antigas.
 - O typecheck e o build completo passaram após essas alterações.
 - A área Pedidos e envios agora possui a aba **Pedidos**. Ela sincroniza até mil
@@ -91,6 +91,13 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   (`shipping_cost_owner`) e permite informar outros custos e o percentual da
   comissão. O demonstrativo mostra a conta completa e os pedidos considerados.
   Não usa migration.
+- O pós-venda possui a automação **Grupo VIP Black Friday**. Após a confirmação
+  do pagamento, ela espera o tempo configurado e envia pelo WhatsApp uma mensagem
+  com `{{link_grupo}}`; o link precisa ser um convite
+  `https://chat.whatsapp.com/...`. A aba Pedidos também permite enviar ou reenviar
+  o convite manualmente para compras antigas pagas. Antes do envio automático ou
+  manual, o backend consulta novamente a Nuvemshop e cancela pedidos não pagos ou
+  cancelados. A configuração fica dentro de `post_sale_sequence` e não usa migration.
 - A migration `0018_fix_automation_message_sequence_constraint.sql` foi criada e
   ainda precisa ser executada em produção. Ela remove a restrição legada que
   impedia mais de uma etapa por carrinho e reinicia o corte das rotinas ativas
@@ -508,6 +515,7 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/run` (POST — dispara o cron manualmente),
 `/api/automations/abandoned-cart-routine`, `/api/automations/post-sale-routine`,
 `/api/automations/abandoned-cart-manual-send`,
+`/api/automations/black-friday-group-manual-send`,
 `/api/automations/pending-payment-routine`,
 `/api/automations/pending-payment-manual-send`,
 `/api/automations/review-request-manual-send`, `/api/automations/sync-orders`,

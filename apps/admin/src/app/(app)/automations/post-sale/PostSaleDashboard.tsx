@@ -113,6 +113,12 @@ const POST_SALE_STEP_META: Record<
     description: "Confirma que o pagamento foi aprovado.",
     tracking: false,
   },
+  black_friday_group: {
+    trigger: "Pagamento aprovado",
+    title: "Grupo VIP Black Friday",
+    description: "Convida clientes que compraram para o grupo de ofertas.",
+    tracking: false,
+  },
   order_packed: {
     trigger: "Pedido preparado",
     title: "Pedido separado",
@@ -223,6 +229,12 @@ export function PostSaleDashboard({
         enabled: true,
         attachmentType: "none" as const,
         attachmentUrl: null,
+        linkUrl:
+          step.id === "black_friday_group"
+            ? editorMode === "preset"
+              ? preset?.linkUrl ?? null
+              : null
+            : step.linkUrl,
       };
     })
   );
@@ -254,6 +266,14 @@ export function PostSaleDashboard({
     type: "ok" | "error";
     text: string;
   } | null>(null);
+  const [groupSelection, setGroupSelection] = useState<PostSaleOrderView | null>(
+    null
+  );
+  const [groupSending, setGroupSending] = useState(false);
+  const [groupFeedback, setGroupFeedback] = useState<{
+    type: "ok" | "error";
+    text: string;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{
     type: "ok" | "error";
@@ -262,6 +282,9 @@ export function PostSaleDashboard({
   const showRoutine = mode === "all" || mode === "routine";
   const showMessages = mode === "all" || mode === "messages";
   const showOrders = mode === "all" || mode === "orders";
+  const blackFridayGroupStep = postSaleSteps.find(
+    (step) => step.id === "black_friday_group"
+  );
 
   const filteredOrders = useMemo(() => {
     const search = query.trim().toLocaleLowerCase("pt-BR");
@@ -322,6 +345,37 @@ export function PostSaleDashboard({
     setManualFeedback({
       type: "ok",
       text: "Pedido de avaliação enviado pelo WhatsApp.",
+    });
+    router.refresh();
+  }
+
+  async function sendManualGroupInvite() {
+    if (!groupSelection) return;
+    setGroupSending(true);
+    setGroupFeedback(null);
+    const response = await fetch(
+      "/api/automations/black-friday-group-manual-send",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          storeId,
+          externalOrderId: groupSelection.externalOrderId,
+        }),
+      }
+    );
+    const result = await response.json().catch(() => ({}));
+    setGroupSending(false);
+    if (!response.ok) {
+      setGroupFeedback({
+        type: "error",
+        text: result.error || "Não foi possível enviar o convite para o grupo",
+      });
+      return;
+    }
+    setGroupFeedback({
+      type: "ok",
+      text: "Convite para o grupo enviado pelo WhatsApp.",
     });
     router.refresh();
   }
@@ -551,6 +605,19 @@ export function PostSaleDashboard({
                     attachmentType={step.attachmentType}
                     editMessageHref={focusAutomation ? null : undefined}
                   >
+                    {step.id === "black_friday_group" && !focusAutomation && (
+                      <div
+                        className={`rounded-xl border px-4 py-3 text-sm leading-5 ${
+                          step.linkUrl
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                            : "border-amber-200 bg-amber-50 text-amber-900"
+                        }`}
+                      >
+                        {step.linkUrl
+                          ? "Link do grupo configurado."
+                          : "Configure o link do grupo em Mensagens antes de ativar."}
+                      </div>
+                    )}
                     {step.delayMinutes === 0 && !focusAutomation && (
                       <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
                         A mensagem sai no próximo processamento da fila depois que o estado for recebido.
@@ -558,6 +625,19 @@ export function PostSaleDashboard({
                     )}
                     {focusAutomation === step.id && (
                       <>
+                        {step.id === "black_friday_group" && (
+                          <>
+                            <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs leading-5 text-violet-900">
+                              O convite é disparado após o pagamento. Use <strong>{"{{link_grupo}}"}</strong> na mensagem.
+                            </div>
+                            <GroupLinkField
+                              value={step.linkUrl ?? ""}
+                              onChange={(linkUrl) =>
+                                updatePostSaleStep(step.id, { linkUrl })
+                              }
+                            />
+                          </>
+                        )}
                         {meta.tracking && (
                           <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-900">
                             Use <strong>{"{{codigo_rastreio}}"}</strong> e <strong>{"{{link_rastreio}}"}</strong> para os dados da entrega.
@@ -573,6 +653,9 @@ export function PostSaleDashboard({
                             "{{pedido}}",
                             "{{produtos}}",
                             "{{loja}}",
+                            ...(step.id === "black_friday_group"
+                              ? ["{{link_grupo}}"]
+                              : []),
                             "{{codigo_rastreio}}",
                             "{{link_rastreio}}",
                             "{{status_entrega}}",
@@ -646,6 +729,19 @@ export function PostSaleDashboard({
                     title={meta.title}
                     description={meta.description}
                   >
+                    {step.id === "black_friday_group" && (
+                      <>
+                        <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm leading-5 text-violet-900">
+                          Cole o link de convite do grupo e mantenha <strong>{"{{link_grupo}}"}</strong> no texto.
+                        </div>
+                        <GroupLinkField
+                          value={step.linkUrl ?? ""}
+                          onChange={(linkUrl) =>
+                            updatePostSaleStep(step.id, { linkUrl })
+                          }
+                        />
+                      </>
+                    )}
                     {meta.tracking && (
                       <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-5 text-blue-900">
                         Use <strong>{"{{codigo_rastreio}}"}</strong>, <strong>{"{{link_rastreio}}"}</strong> e <strong>{"{{status_entrega}}"}</strong> para inserir os dados recebidos da transportadora.
@@ -661,6 +757,9 @@ export function PostSaleDashboard({
                         "{{pedido}}",
                         "{{produtos}}",
                         "{{loja}}",
+                        ...(step.id === "black_friday_group"
+                          ? ["{{link_grupo}}"]
+                          : []),
                         "{{codigo_rastreio}}",
                         "{{link_rastreio}}",
                         "{{status_entrega}}",
@@ -803,6 +902,25 @@ export function PostSaleDashboard({
                       ) : (
                         <span className="text-xs text-gray-400">Nenhuma mensagem</span>
                       )}
+                      <button
+                        type="button"
+                        disabled={
+                          !isPaidOrder(order) ||
+                          !order.customerPhone ||
+                          !blackFridayGroupStep?.linkUrl
+                        }
+                        title={groupInviteDisabledReason(
+                          order,
+                          blackFridayGroupStep?.linkUrl ?? null
+                        )}
+                        onClick={() => {
+                          setGroupFeedback(null);
+                          setGroupSelection(order);
+                        }}
+                        className="mt-3 w-full rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900 transition hover:border-violet-500 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {groupInviteActionLabel(order)}
+                      </button>
                     </td>
                     <td className="min-w-[310px] px-5 py-4">
                       {order.products.length ? (
@@ -896,6 +1014,141 @@ export function PostSaleDashboard({
           }}
         />
       )}
+      {groupSelection && blackFridayGroupStep && (
+        <ManualGroupInviteModal
+          order={groupSelection}
+          storeName={storeName}
+          step={blackFridayGroupStep}
+          sending={groupSending}
+          feedback={groupFeedback}
+          onSend={sendManualGroupInvite}
+          onClose={() => {
+            if (groupSending) return;
+            setGroupSelection(null);
+            setGroupFeedback(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ManualGroupInviteModal({
+  order,
+  storeName,
+  step,
+  sending,
+  feedback,
+  onSend,
+  onClose,
+}: {
+  order: PostSaleOrderView;
+  storeName: string;
+  step: PostSaleMessageStep;
+  sending: boolean;
+  feedback: { type: "ok" | "error"; text: string } | null;
+  onSend: () => void;
+  onClose: () => void;
+}) {
+  const previewImage =
+    step.attachmentType === "product_image"
+      ? order.productImages[0] ?? null
+      : step.attachmentType === "library"
+        ? step.attachmentUrl
+        : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Convidar cliente para o grupo"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <div className="max-h-[calc(100vh-32px)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-zinc-200 px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-950">
+              Convidar para o grupo Black Friday
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              {order.customerName} · pedido #{order.externalOrderId}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="grid h-9 w-9 place-items-center rounded-lg text-xl text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-5 p-5">
+          <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm leading-5 text-violet-900">
+            Antes de enviar, o sistema confirma novamente na Nuvemshop que o
+            pedido está pago. O convite será enviado imediatamente.
+          </div>
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Prévia da mensagem
+            </div>
+            <div className="rounded-xl bg-[#efeae2] p-4">
+              <div className="overflow-hidden rounded-xl rounded-tr-sm bg-[#d9fdd3] shadow-sm">
+                {previewImage && (
+                  <img
+                    src={previewImage}
+                    alt="Anexo da mensagem"
+                    className="max-h-64 w-full object-cover"
+                  />
+                )}
+                <div className="whitespace-pre-wrap break-words px-4 py-3 text-sm leading-6 text-zinc-800">
+                  {renderGroupInviteMessage(step, order, storeName)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {feedback && (
+            <div
+              className={`rounded-xl border px-4 py-3 text-sm ${
+                feedback.type === "error"
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-green-200 bg-green-50 text-green-800"
+              }`}
+            >
+              {feedback.text}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-zinc-200 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-40"
+          >
+            Fechar
+          </button>
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={sending || feedback?.type === "ok"}
+            className="rounded-lg bg-brand-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {sending
+              ? "Enviando..."
+              : feedback?.type === "ok"
+                ? "Enviado"
+                : groupInviteActionLabel(order)}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1077,6 +1330,27 @@ function renderReviewMessage(
   );
 }
 
+function renderGroupInviteMessage(
+  step: PostSaleMessageStep,
+  order: PostSaleOrderView,
+  storeName: string
+): string {
+  const firstName = order.customerName.trim().split(/\s+/)[0] || "cliente";
+  const groupUrl = step.linkUrl || "https://chat.whatsapp.com/link-do-grupo";
+  const variables: Record<string, string> = {
+    "{{nome}}": firstName,
+    "{{pedido}}": order.externalOrderId,
+    "{{produtos}}": order.productsSummary || "seus produtos",
+    "{{loja}}": storeName,
+    "{{link}}": groupUrl,
+    "{{link_grupo}}": groupUrl,
+  };
+  return Object.entries(variables).reduce(
+    (message, [variable, value]) => message.replaceAll(variable, value),
+    step.messageTemplate
+  );
+}
+
 function PostSaleFlowCard({
   trigger,
   title,
@@ -1176,6 +1450,30 @@ function MessageTemplateCard({
       <p className="mb-4 mt-1 text-sm leading-5 text-gray-500">{description}</p>
       {children}
     </div>
+  );
+}
+
+function GroupLinkField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="mb-4 block text-sm font-semibold text-zinc-800">
+      Link de convite do grupo
+      <input
+        type="url"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="https://chat.whatsapp.com/..."
+        className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-zinc-500"
+      />
+      <span className="mt-1.5 block text-xs font-normal text-zinc-500">
+        No WhatsApp, abra o grupo e use “Convidar via link” para copiar esse endereço.
+      </span>
+    </label>
   );
 }
 
@@ -1467,6 +1765,47 @@ function orderStatusLabel(status: string): string {
     delivered: "Entregue",
   };
   return labels[status] || status;
+}
+
+function isPaidOrder(order: PostSaleOrderView): boolean {
+  const orderStatus = order.orderStatus.toLowerCase();
+  const paymentStatus = order.paymentStatus?.toLowerCase();
+  if (
+    orderStatus === "cancelled" ||
+    orderStatus === "canceled" ||
+    orderStatus === "voided" ||
+    paymentStatus === "voided" ||
+    paymentStatus === "refunded"
+  ) {
+    return false;
+  }
+  return (
+    paymentStatus === "paid" ||
+    paymentStatus === "authorized" ||
+    ["paid", "packed", "fulfilled", "in_transit", "out_for_delivery", "delivered"].includes(
+      orderStatus
+    )
+  );
+}
+
+function groupInviteActionLabel(order: PostSaleOrderView): string {
+  const message = order.postSaleMessages.find(
+    (item) => item.stepId === "black_friday_group"
+  );
+  if (message?.status === "sent") return "Reenviar convite";
+  if (message?.status === "failed") return "Tentar convite novamente";
+  if (message?.status === "scheduled") return "Enviar convite agora";
+  return "Convidar para o grupo";
+}
+
+function groupInviteDisabledReason(
+  order: PostSaleOrderView,
+  groupUrl: string | null
+): string | undefined {
+  if (!groupUrl) return "Configure o link do grupo na página Mensagens";
+  if (!order.customerPhone) return "Este cliente não possui telefone";
+  if (!isPaidOrder(order)) return "Disponível somente para pedidos pagos";
+  return undefined;
 }
 
 function safeDateTime(value: string): string {

@@ -194,12 +194,12 @@ function sectionTitle(section: AutomationSection): string {
 
 function sectionDescription(section: AutomationSection): string {
   if (section === "messages") {
-    return "Personalize a confirmação do pedido e o convite de avaliação.";
+    return "Personalize confirmações, convites de avaliação e o grupo VIP.";
   }
   if (section === "routines") {
     return "Ative os envios e escolha o tempo em minutos, horas ou dias.";
   }
-  return "Veja os pedidos, produtos e o status de cada mensagem enviada.";
+  return "Veja os pedidos, produtos e envie convites manuais pelo WhatsApp.";
 }
 
 function normalizeOrders(

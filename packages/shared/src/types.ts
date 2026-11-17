@@ -14,6 +14,7 @@ export type AbandonedCartCouponType = "percentage" | "absolute" | "shipping";
 export type PostSaleTrigger =
   | "order_created"
   | "order_paid"
+  | "black_friday_group"
   | "order_packed"
   | "order_fulfilled"
   | "tracking_in_transit"
@@ -89,6 +90,7 @@ export interface PostSaleMessageStep {
   enabled: boolean;
   attachmentType: AutomationAttachmentType;
   attachmentUrl: string | null;
+  linkUrl?: string | null;
 }
 
 export interface Product {

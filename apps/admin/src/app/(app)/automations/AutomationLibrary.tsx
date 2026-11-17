@@ -56,6 +56,16 @@ const PRESETS: PresetAutomation[] = [
     tone: "amber",
   },
   {
+    id: "black-friday-group",
+    title: "Grupo VIP Black Friday",
+    category: "Relacionamento",
+    trigger: "Pagamento aprovado",
+    description: "Convide automaticamente quem comprou para um grupo exclusivo de ofertas, com envio manual para clientes antigos.",
+    href: "/automations/post-sale?section=routines&focus=black_friday_group&editor=preset",
+    messages: "1 mensagem pronta",
+    tone: "violet",
+  },
+  {
     id: "shipping-tracking",
     title: "Pedido enviado com rastreio",
     category: "Pós-venda",
@@ -100,6 +110,7 @@ const PRESETS: PresetAutomation[] = [
 const POST_SALE_TRIGGERS = [
   ["order_created", "Pedido criado"],
   ["order_paid", "Pagamento aprovado"],
+  ["black_friday_group", "Pagamento aprovado · grupo VIP"],
   ["order_packed", "Pedido preparado"],
   ["order_fulfilled", "Pedido despachado"],
   ["tracking_in_transit", "Objeto em trânsito"],

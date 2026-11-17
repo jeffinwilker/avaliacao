@@ -382,9 +382,22 @@ export async function POST(req: NextRequest) {
       attachmentType: settings?.post_purchase_attachment_type,
       attachmentUrl: settings?.post_purchase_attachment_url,
     });
-    const stepIndex = steps.findIndex((item) => item.id === trigger);
-    const step = steps[stepIndex];
-    if (step?.enabled && hasRequiredTracking(step.messageTemplate, trackingNumber, trackingUrl)) {
+    const triggeredStepIds =
+      trigger === "order_paid"
+        ? (["order_paid", "black_friday_group"] as const)
+        : ([trigger] as const);
+
+    for (const stepId of triggeredStepIds) {
+      const stepIndex = steps.findIndex((item) => item.id === stepId);
+      const step = steps[stepIndex];
+      if (
+        !step?.enabled ||
+        !hasRequiredTracking(step.messageTemplate, trackingNumber, trackingUrl)
+      ) {
+        continue;
+      }
+      if (step.id === "black_friday_group" && !step.linkUrl) continue;
+
       const baseTime =
         trigger === "order_created"
           ? new Date(order.created_at).getTime()
@@ -403,8 +416,10 @@ export async function POST(req: NextRequest) {
         customerPhone,
         productsSummary: productsSummary || "seus produtos",
         link:
-          trackingUrl ||
-          (store.domain ? normalizeStoreUrl(store.domain) : null),
+          step.id === "black_friday_group"
+            ? step.linkUrl
+            : trackingUrl ||
+              (store.domain ? normalizeStoreUrl(store.domain) : null),
         scheduledFor: new Date(
           (Number.isFinite(baseTime) ? baseTime : Date.now()) +
             step.delayMinutes * 60_000

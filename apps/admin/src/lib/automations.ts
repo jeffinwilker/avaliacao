@@ -124,6 +124,7 @@ export interface ManualAbandonedCartSendResult {
 }
 
 export type ManualPendingPaymentSendResult = ManualAbandonedCartSendResult;
+export type ManualPostSaleSendResult = ManualAbandonedCartSendResult;
 
 export async function syncAbandonedCarts(
   admin: AdminClient
@@ -884,6 +885,22 @@ export async function sendScheduledAutomationMessages(
 
     try {
       if (
+        type === "post_purchase" &&
+        job.routine_step_key === "black_friday_group" &&
+        !(await postPurchaseOrderStillPaid(store, job.external_reference))
+      ) {
+        await admin
+          .from("automation_messages")
+          .update({
+            status: "cancelled",
+            error_message: "Pedido não está mais pago ou foi cancelado",
+          })
+          .eq("id", job.id);
+        result.cancelled++;
+        continue;
+      }
+
+      if (
         type === "pending_payment" &&
         !(await pendingPaymentStillOpen(admin, store, job.external_reference))
       ) {
@@ -978,6 +995,10 @@ export async function sendScheduledAutomationMessages(
         "{{link_carrinho}}": type === "abandoned_cart" ? job.link || "" : "",
         "{{link_pagamento}}": type === "pending_payment" ? job.link || "" : "",
         "{{link_aniversario}}": type === "birthday_collection" ? job.link || "" : "",
+        "{{link_grupo}}":
+          type === "post_purchase" && job.routine_step_key === "black_friday_group"
+            ? job.link || ""
+            : "",
         "{{loja}}": store.name,
         "{{pedido}}": job.reference_label || job.external_reference,
         "{{cupom}}": couponCode,
@@ -1021,6 +1042,22 @@ export async function sendScheduledAutomationMessages(
           .update({
             status: "cancelled",
             error_message: "Pix confirmado antes do envio",
+          })
+          .eq("id", job.id);
+        result.cancelled++;
+        continue;
+      }
+
+      if (
+        type === "post_purchase" &&
+        job.routine_step_key === "black_friday_group" &&
+        !(await postPurchaseOrderStillPaid(store, job.external_reference))
+      ) {
+        await admin
+          .from("automation_messages")
+          .update({
+            status: "cancelled",
+            error_message: "Pedido deixou de estar pago antes do envio",
           })
           .eq("id", job.id);
         result.cancelled++;
@@ -1534,6 +1571,164 @@ export async function sendManualPendingPaymentMessage(
   }
 }
 
+/**
+ * Envia imediatamente o convite do grupo para um pedido antigo. A confirmação
+ * do pagamento é refeita na Nuvemshop antes do envio para evitar convidar uma
+ * compra cancelada ou ainda não paga.
+ */
+export async function sendManualBlackFridayGroupMessage(
+  admin: AdminClient,
+  input: { storeId: string; externalOrderId: string }
+): Promise<ManualPostSaleSendResult> {
+  const [
+    { data: store, error: storeError },
+    { data: config, error: configError },
+    { data: order, error: orderError },
+  ] = await Promise.all([
+    admin
+      .from("stores")
+      .select("id, name, external_store_id, access_token")
+      .eq("id", input.storeId)
+      .maybeSingle(),
+    admin
+      .from("store_settings")
+      .select(
+        `post_purchase_enabled, post_purchase_delay_minutes,
+         post_purchase_whatsapp_template, post_purchase_attachment_type,
+         post_purchase_attachment_url, post_sale_sequence, whatsapp_instance`
+      )
+      .eq("store_id", input.storeId)
+      .maybeSingle(),
+    admin
+      .from("orders")
+      .select(
+        `external_order_id, order_number, source_token, customer_name,
+         customer_phone, products_summary, product_image_url`
+      )
+      .eq("store_id", input.storeId)
+      .eq("external_order_id", input.externalOrderId)
+      .maybeSingle(),
+  ]);
+
+  if (storeError) throw storeError;
+  if (configError) throw configError;
+  if (orderError) throw orderError;
+  if (!store || !config || !order) throw new Error("Pedido não encontrado");
+  if (!store.access_token) {
+    throw new Error("A loja precisa estar conectada à Nuvemshop");
+  }
+  if (!order.customer_phone) {
+    throw new Error("O cliente não informou um número de WhatsApp");
+  }
+
+  const liveOrder = await fetchOrder(
+    store.external_store_id,
+    store.access_token,
+    input.externalOrderId
+  );
+  if (!isPaidOrder(liveOrder)) {
+    throw new Error("Este pedido não está pago ou foi cancelado");
+  }
+
+  const steps = parsePostSaleSequence(config.post_sale_sequence, {
+    enabled: config.post_purchase_enabled,
+    delayMinutes: config.post_purchase_delay_minutes,
+    messageTemplate: config.post_purchase_whatsapp_template,
+    attachmentType: config.post_purchase_attachment_type,
+    attachmentUrl: config.post_purchase_attachment_url,
+  });
+  const stepIndex = steps.findIndex((step) => step.id === "black_friday_group");
+  const step = steps[stepIndex];
+  if (!step) throw new Error("A mensagem do grupo não foi configurada");
+  if (!isWhatsAppGroupUrl(step.linkUrl)) {
+    throw new Error("Informe um link válido do grupo do WhatsApp na rotina");
+  }
+
+  const attachmentUrl =
+    step.attachmentType === "library"
+      ? step.attachmentUrl
+      : step.attachmentType === "product_image"
+        ? order.product_image_url
+        : null;
+  const startedAt = new Date().toISOString();
+  const { data: job, error: jobError } = await admin
+    .from("automation_messages")
+    .upsert(
+      {
+        store_id: input.storeId,
+        automation_type: "post_purchase",
+        external_reference: order.external_order_id,
+        reference_label: order.order_number || order.external_order_id,
+        source_token: order.source_token || null,
+        customer_name: order.customer_name || "Cliente",
+        customer_phone: order.customer_phone,
+        products_summary: order.products_summary || "seus produtos",
+        link: step.linkUrl,
+        routine_step_key: step.id,
+        sequence_step: stepIndex + 1,
+        status: "processing",
+        scheduled_for: startedAt,
+        sent_at: null,
+        attempts: 0,
+        error_message: null,
+        attachment_type: attachmentUrl ? "image" : "none",
+        attachment_url: attachmentUrl,
+      },
+      {
+        onConflict:
+          "store_id,automation_type,external_reference,routine_step_key",
+      }
+    )
+    .select("id")
+    .single();
+  if (jobError) throw jobError;
+
+  try {
+    const message = replaceTemplate(step.messageTemplate, {
+      "{{nome}}": firstName(order.customer_name || "Cliente"),
+      "{{produtos}}": order.products_summary || "seus produtos",
+      "{{link}}": step.linkUrl,
+      "{{link_grupo}}": step.linkUrl,
+      "{{loja}}": store.name,
+      "{{pedido}}": order.order_number || order.external_order_id,
+    });
+    await sendWhatsApp({
+      phone: order.customer_phone,
+      message,
+      instance: config.whatsapp_instance,
+      mediaUrl: attachmentUrl,
+    });
+    const sentAt = new Date().toISOString();
+    const { error: updateError } = await admin
+      .from("automation_messages")
+      .update({
+        status: "sent",
+        sent_at: sentAt,
+        attempts: 1,
+        error_message: null,
+      })
+      .eq("id", job.id);
+    if (updateError) throw updateError;
+    return {
+      messageId: job.id,
+      status: "sent",
+      sentAt,
+      couponCode: null,
+    };
+  } catch (error) {
+    await admin
+      .from("automation_messages")
+      .update({
+        status: "failed",
+        sent_at: null,
+        attempts: 1,
+        error_message: (error as Error).message.slice(0, 1000),
+      })
+      .eq("id", job.id);
+    throw error;
+  }
+}
+
 export function parsePostSaleSequence(
   value: unknown,
   legacy?: {
@@ -1575,6 +1770,7 @@ export function parsePostSaleSequence(
       candidate?.attachment_url ??
       candidate?.attachmentUrl ??
       (isLegacyConfirmation ? legacy?.attachmentUrl : defaultStep.attachmentUrl);
+    const linkUrlValue = candidate?.link_url ?? candidate?.linkUrl ?? defaultStep.linkUrl;
 
     return {
       id: defaultStep.id,
@@ -1595,8 +1791,51 @@ export function parsePostSaleSequence(
         /^https:\/\//i.test(attachmentUrlValue)
           ? attachmentUrlValue
           : null,
+      linkUrl:
+        typeof linkUrlValue === "string" && /^https:\/\//i.test(linkUrlValue)
+          ? linkUrlValue.trim()
+          : null,
     };
   });
+}
+
+function isPaidOrder(order: {
+  status?: string | null;
+  payment_status?: string | null;
+  paid_at?: string | null;
+}): boolean {
+  const status = order.status?.toLowerCase();
+  return (
+    (Boolean(order.paid_at) || order.payment_status?.toLowerCase() === "paid") &&
+    status !== "cancelled" &&
+    status !== "canceled" &&
+    status !== "voided"
+  );
+}
+
+async function postPurchaseOrderStillPaid(
+  store: { external_store_id: string; access_token: string | null },
+  externalOrderId: string
+): Promise<boolean> {
+  if (!store.access_token) {
+    throw new Error("Conexão com a Nuvemshop ausente");
+  }
+  const order = await fetchOrder(
+    store.external_store_id,
+    store.access_token,
+    externalOrderId
+  );
+  return isPaidOrder(order);
+}
+
+function isWhatsAppGroupUrl(value: string | null | undefined): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "chat.whatsapp.com";
+  } catch {
+    return false;
+  }
 }
 
 function parseAttachmentType(value: unknown): AutomationAttachmentType {

@@ -144,6 +144,29 @@ export async function PUT(req: NextRequest) {
       { status: 400 }
     );
   }
+  const blackFridayGroupStep = postSaleSequence.find(
+    (step) => step.id === "black_friday_group"
+  );
+  if (
+    blackFridayGroupStep &&
+    (blackFridayGroupStep.enabled || blackFridayGroupStep.linkUrl) &&
+    !isWhatsAppGroupUrl(blackFridayGroupStep.linkUrl)
+  ) {
+    return NextResponse.json(
+      { error: "Informe um link válido do grupo, começando com https://chat.whatsapp.com/" },
+      { status: 400 }
+    );
+  }
+  if (
+    blackFridayGroupStep &&
+    (blackFridayGroupStep.enabled || blackFridayGroupStep.linkUrl) &&
+    !hasLinkVariable(blackFridayGroupStep.messageTemplate, "{{link_grupo}}")
+  ) {
+    return NextResponse.json(
+      { error: "A mensagem do grupo precisa conter {{link_grupo}}" },
+      { status: 400 }
+    );
+  }
   if (
     !reviewAttachment.valid ||
     postSaleSequence.some(
@@ -194,6 +217,7 @@ export async function PUT(req: NextRequest) {
         enabled: step.enabled,
         attachment_type: step.attachmentType,
         attachment_url: step.attachmentUrl,
+        link_url: step.linkUrl ?? null,
       })),
       birthday_collection_enabled: birthdayEnabled,
       birthday_collection_delay_minutes: birthdayDelayMinutes,
@@ -247,6 +271,16 @@ export async function PUT(req: NextRequest) {
 
 function hasLinkVariable(template: string, variable: string): boolean {
   return template.includes(variable) || template.includes("{{link}}");
+}
+
+function isWhatsAppGroupUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "chat.whatsapp.com";
+  } catch {
+    return false;
+  }
 }
 
 function parseAttachment(typeValue: unknown, urlValue: unknown): {

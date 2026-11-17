@@ -16,6 +16,7 @@ import {
 const TRIGGER_LABELS: Record<string, string> = {
   order_created: "Pedido criado",
   order_paid: "Pagamento aprovado",
+  black_friday_group: "Pagamento aprovado",
   order_packed: "Pedido preparado",
   order_fulfilled: "Pedido despachado",
   tracking_in_transit: "Objeto em trânsito",
@@ -29,6 +30,7 @@ const TRIGGER_LABELS: Record<string, string> = {
 const AUTOMATION_TITLES: Record<string, string> = {
   order_created: "Confirmação de pedido",
   order_paid: "Pagamento confirmado",
+  black_friday_group: "Grupo VIP Black Friday",
   order_packed: "Pedido separado",
   order_fulfilled: "Envio com rastreio",
   tracking_in_transit: "Atualização de transporte",
