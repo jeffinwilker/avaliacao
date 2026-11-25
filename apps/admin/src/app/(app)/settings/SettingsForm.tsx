@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { WhatsAppConnection } from "./WhatsAppConnection";
+import { WhatsAppRoutingManager } from "./WhatsAppRoutingManager";
 import { TeamUsers, type TeamMemberView } from "./TeamUsers";
 
 interface Settings {
@@ -92,6 +93,9 @@ export function SettingsForm({
           serverConfigured={evolutionServerConfigured}
           initialInstance={initial.whatsapp_instance}
         />
+        <div className="border-t border-zinc-200 pt-5">
+          <WhatsAppRoutingManager />
+        </div>
       </Section>
 
       <Section title="Moderação">

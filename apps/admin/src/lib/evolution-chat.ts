@@ -1,5 +1,6 @@
 export interface WhatsAppChatSummary {
   id: string;
+  remoteJid?: string;
   name: string;
   phone: string | null;
   avatarUrl: string | null;
@@ -7,6 +8,13 @@ export interface WhatsAppChatSummary {
   lastMessageFromMe: boolean;
   lastMessageAt: string | null;
   unreadCount: number;
+  instanceId?: string;
+  instanceLabel?: string;
+  instanceName?: string;
+  sectorId?: string | null;
+  sectorName?: string;
+  connectionState?: "open" | "close" | "connecting" | "unknown";
+  available?: boolean;
 }
 
 export interface WhatsAppMessageView {
@@ -18,6 +26,10 @@ export interface WhatsAppMessageView {
   mediaUrl: string | null;
   sentAt: string;
   status: string | null;
+  kind?: "message" | "system";
+  sourceInstanceId?: string | null;
+  sourceInstanceLabel?: string | null;
+  sourceMessageId?: string | null;
 }
 
 export function normalizeEvolutionChats(payload: unknown): WhatsAppChatSummary[] {
