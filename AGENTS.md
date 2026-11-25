@@ -98,16 +98,6 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
   o convite manualmente para compras antigas pagas. Antes do envio automático ou
   manual, o backend consulta novamente a Nuvemshop e cancela pedidos não pagos ou
   cancelados. A configuração fica dentro de `post_sale_sequence` e não usa migration.
-- A caixa de entrada do WhatsApp agora aceita múltiplos telefones organizados por
-  **setor**. Em `/settings`, o administrador cria setores, cadastra/conecta as
-  instâncias e libera os setores de cada usuário. Se o telefone de uma conversa
-  estiver desativado ou desconectado, `/whatsapp` oferece reconectar o mesmo número
-  ou transferir para um telefone ativo de um setor permitido ao usuário. A
-  transferência avisa o cliente automaticamente pelo novo número, mantém o
-  histórico dos números anteriores e insere na conversa um registro com origem,
-  destino, usuário e horário. A autorização é validada também no backend. A
-  migration `0021_whatsapp_sectors_and_transfers.sql` precisa ser executada antes
-  deste deploy.
 - A migration `0018_fix_automation_message_sequence_constraint.sql` foi criada e
   ainda precisa ser executada em produção. Ela remove a restrição legada que
   impedia mais de uma etapa por carrinho e reinicia o corte das rotinas ativas
@@ -121,7 +111,7 @@ Lily Reviews (avaliações) e Funsales (kits). Loja em produção: **Essenciarte
 - Ao retomar: rode `git status`, `git log -5 --oneline` e leia esta seção. Não
   refaça funcionalidades já descritas como concluídas.
 - Próximo passo operacional: executar as migrations pendentes no SQL Editor do
-  Supabase, incluindo `0019`, `0020` e `0021`, e atualizar o VPS com
+  Supabase, incluindo `0019` e `0020`, e atualizar o VPS com
   `git pull`, `npm run build` e
   `pm2 startOrReload ecosystem.config.cjs --update-env`.
 
@@ -371,7 +361,6 @@ Rode as migrations **em ordem** no SQL Editor (idempotentes, usam `if not exists
 | `0018_fix_automation_message_sequence_constraint.sql` | remove a unicidade legada de uma mensagem por carrinho e preserva a unicidade por etapa |
 | `0019_native_nuvemshop_kits.sql` | identifica kits nativos importados e separa-os dos produtos-kit legados |
 | `0020_pending_payment_automations.sql` | rotina, dados operacionais e fila de lembretes para pedidos com Pix pendente |
-| `0021_whatsapp_sectors_and_transfers.sql` | setores do WhatsApp, múltiplas instâncias, acesso por usuário, conversa atual e histórico auditável de transferências |
 
 **Storage buckets (públicos):** `review-media` (fotos/vídeos de reviews),
 `kit-media` (imagens de kit enviadas pelo lojista) e `automation-media`
@@ -531,8 +520,6 @@ Admin (autenticados via Supabase Auth):
 `/api/automations/pending-payment-manual-send`,
 `/api/automations/review-request-manual-send`, `/api/automations/sync-orders`,
 `/api/whatsapp/chats`, `/api/whatsapp/messages`, `/api/whatsapp/media`,
-`/api/whatsapp/routing`, `/api/whatsapp/instances/connect`,
-`/api/whatsapp/conversations/transfer`,
 `/api/reels` (POST), `/api/reels/[id]` (PUT/DELETE), `/api/reels/upload-video`,
 `/api/customers` (POST), `/api/customers/[id]` (PUT/DELETE),
 `/api/customers/import` (POST em massa),

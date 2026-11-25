@@ -12,18 +12,6 @@ type ClientMessage = WhatsAppMessageView & {
   localText?: string;
 };
 
-interface WhatsAppInstanceOption {
-  id: string;
-  label: string;
-  phoneNumber: string | null;
-  sectorId: string | null;
-  sectorName: string;
-  state: "open" | "close" | "connecting" | "unknown";
-  active: boolean;
-  available: boolean;
-  error: string | null;
-}
-
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const QUICK_EMOJIS = ["😊", "😍", "👍", "🙏", "🎉", "❤️", "😂", "👏"];
@@ -47,26 +35,6 @@ export function WhatsAppConversations() {
   const [sending, setSending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const [instances, setInstances] = useState<WhatsAppInstanceOption[]>([]);
-  const [routingAvailable, setRoutingAvailable] = useState(false);
-  const [conversationUnavailable, setConversationUnavailable] = useState(false);
-  const [currentInstance, setCurrentInstance] = useState<{
-    id: string;
-    label: string;
-    sectorName: string;
-    state: string;
-    active: boolean;
-  } | null>(null);
-  const [recoveryOpen, setRecoveryOpen] = useState(false);
-  const [transferTargetId, setTransferTargetId] = useState("");
-  const [recovering, setRecovering] = useState(false);
-  const [recoveryError, setRecoveryError] = useState<string | null>(null);
-  const [connectionQr, setConnectionQr] = useState<{
-    title: string;
-    qrCode: string | null;
-    pairingCode: string | null;
-    state: string;
-  } | null>(null);
   const chatsRunning = useRef(false);
   const messagesRequestId = useRef(0);
   const messagesViewport = useRef<HTMLDivElement>(null);
@@ -77,14 +45,6 @@ export function WhatsAppConversations() {
   const selectedChat = useMemo(
     () => chats.find((chat) => chat.id === selectedId) ?? null,
     [chats, selectedId]
-  );
-  const transferTargets = useMemo(
-    () =>
-      instances.filter(
-        (instance) =>
-          instance.available && instance.id !== selectedChat?.instanceId
-      ),
-    [instances, selectedChat?.instanceId]
   );
   const filteredChats = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("pt-BR");
@@ -106,8 +66,6 @@ export function WhatsAppConversations() {
       const response = await fetch("/api/whatsapp/chats", { cache: "no-store" });
       const result = (await response.json().catch(() => ({}))) as {
         chats?: WhatsAppChatSummary[];
-        instances?: WhatsAppInstanceOption[];
-        routingAvailable?: boolean;
         error?: string;
       };
       if (!response.ok) {
@@ -117,8 +75,6 @@ export function WhatsAppConversations() {
       }
       const nextChats = Array.isArray(result.chats) ? result.chats : [];
       setChats(nextChats);
-      setInstances(Array.isArray(result.instances) ? result.instances : []);
-      setRoutingAvailable(result.routingAvailable === true);
       setSelectedId((current) =>
         current && nextChats.some((chat) => chat.id === current)
           ? current
@@ -138,28 +94,16 @@ export function WhatsAppConversations() {
     }
   }, []);
 
-  const loadMessages = useCallback(async (chat: WhatsAppChatSummary, silent = false) => {
+  const loadMessages = useCallback(async (jid: string, silent = false) => {
     const requestId = ++messagesRequestId.current;
     if (!silent) setLoadingMessages(true);
     try {
-      const query = routingAvailable
-        ? `conversationId=${encodeURIComponent(chat.id)}`
-        : `jid=${encodeURIComponent(chat.remoteJid || chat.id)}`;
       const response = await fetch(
-        `/api/whatsapp/messages?${query}`,
+        `/api/whatsapp/messages?jid=${encodeURIComponent(jid)}`,
         { cache: "no-store" }
       );
       const result = (await response.json().catch(() => ({}))) as {
         messages?: WhatsAppMessageView[];
-        unavailable?: boolean;
-        currentInstance?: {
-          id: string;
-          label: string;
-          sectorName: string;
-          state: string;
-          active: boolean;
-        };
-        historyWarnings?: string[];
         error?: string;
       };
       if (!response.ok) {
@@ -170,9 +114,6 @@ export function WhatsAppConversations() {
       if (requestId !== messagesRequestId.current) return;
       const remoteMessages = Array.isArray(result.messages) ? result.messages : [];
       setMessages((current) => mergeMessages(remoteMessages, current));
-      setConversationUnavailable(result.unavailable === true);
-      setCurrentInstance(result.currentInstance ?? null);
-      setRecoveryError(null);
       setMessageError(null);
       setLastUpdatedAt(new Date());
     } catch (error) {
@@ -186,7 +127,7 @@ export function WhatsAppConversations() {
         setLoadingMessages(false);
       }
     }
-  }, [routingAvailable]);
+  }, []);
 
   useEffect(() => {
     void loadChats();
@@ -206,9 +147,6 @@ export function WhatsAppConversations() {
       messagesRequestId.current += 1;
       setMessages([]);
       setLoadingMessages(false);
-      setConversationUnavailable(false);
-      setCurrentInstance(null);
-      setRecoveryOpen(false);
       return;
     }
     setMessages([]);
@@ -219,16 +157,15 @@ export function WhatsAppConversations() {
       if (current) releaseLocalImage(current.previewUrl, localImageUrls.current);
       return null;
     });
-    if (!selectedChat) return;
-    void loadMessages(selectedChat);
+    void loadMessages(selectedId);
     const refresh = () => {
       if (document.visibilityState === "visible") {
-        void loadMessages(selectedChat, true);
+        void loadMessages(selectedId, true);
       }
     };
     const interval = window.setInterval(refresh, 15_000);
     return () => window.clearInterval(interval);
-  }, [loadMessages, selectedId, selectedChat?.instanceId, selectedChat?.remoteJid]);
+  }, [loadMessages, selectedId]);
 
   useEffect(() => {
     if (loadingMessages || !selectedId) return;
@@ -312,7 +249,7 @@ export function WhatsAppConversations() {
     existingId?: string;
     clearComposer?: boolean;
   }) {
-    if (!selectedId || !selectedChat || sending || conversationUnavailable) return;
+    if (!selectedId || sending) return;
     const text = input.text.trim();
     const file = input.file ?? null;
     if (!text && !file) return;
@@ -343,11 +280,7 @@ export function WhatsAppConversations() {
     );
 
     const formData = new FormData();
-    if (routingAvailable) {
-      formData.set("conversationId", selectedId);
-    } else {
-      formData.set("jid", selectedChat.remoteJid || selectedId);
-    }
+    formData.set("jid", selectedId);
     formData.set("text", text);
     if (file) formData.set("image", file, file.name);
 
@@ -358,14 +291,9 @@ export function WhatsAppConversations() {
       });
       const result = (await response.json().catch(() => ({}))) as {
         message?: WhatsAppMessageView;
-        code?: string;
         error?: string;
       };
       if (!response.ok || !result.message) {
-        if (result.code === "PHONE_UNAVAILABLE") {
-          setConversationUnavailable(true);
-          setRecoveryOpen(true);
-        }
         throw new Error(result.error || "Não foi possível enviar a mensagem");
       }
 
@@ -400,7 +328,7 @@ export function WhatsAppConversations() {
         setEmojiOpen(false);
       }
       window.setTimeout(() => {
-        void loadMessages(selectedChat, true);
+        void loadMessages(selectedId, true);
         void loadChats(true);
       }, 1_200);
     } catch (error) {
@@ -439,104 +367,6 @@ export function WhatsAppConversations() {
       previewUrl: message.mediaUrl,
       existingId: message.id,
     });
-  }
-
-  async function connectCurrentPhone() {
-    const instanceId = selectedChat?.instanceId || currentInstance?.id;
-    if (!instanceId) return;
-    setRecovering(true);
-    setRecoveryError(null);
-    const response = await fetch("/api/whatsapp/instances/connect", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ instanceId }),
-    });
-    const result = await response.json().catch(() => ({}));
-    setRecovering(false);
-    if (!response.ok) {
-      setRecoveryError(result.error || "Não foi possível conectar o telefone");
-      return;
-    }
-    setConnectionQr({
-      title: result.instance?.label || selectedChat?.instanceLabel || "WhatsApp",
-      qrCode: result.qrCode ?? null,
-      pairingCode: result.pairingCode ?? null,
-      state: result.state ?? "unknown",
-    });
-    if (result.state === "open") {
-      setConversationUnavailable(false);
-      setRecoveryOpen(false);
-      if (selectedChat) void loadMessages(selectedChat);
-      void loadChats(true);
-    }
-  }
-
-  async function transferConversation() {
-    if (!selectedChat || !transferTargetId) return;
-    setRecovering(true);
-    setRecoveryError(null);
-    const response = await fetch("/api/whatsapp/conversations/transfer", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        conversationId: selectedChat.id,
-        targetInstanceId: transferTargetId,
-      }),
-    });
-    const result = await response.json().catch(() => ({}));
-    setRecovering(false);
-    if (!response.ok) {
-      setRecoveryError(result.error || "Não foi possível transferir a conversa");
-      return;
-    }
-    setConversationUnavailable(false);
-    setRecoveryOpen(false);
-    setTransferTargetId("");
-    setChats((current) =>
-      current.map((chat) =>
-        chat.id === selectedChat.id
-          ? {
-              ...chat,
-              instanceId: result.instance?.id,
-              instanceLabel: result.instance?.label,
-              sectorId: result.instance?.sectorId,
-              sectorName: result.instance?.sectorName,
-              connectionState: "open",
-              available: true,
-              lastMessage: result.notice || chat.lastMessage,
-              lastMessageFromMe: true,
-              lastMessageAt: new Date().toISOString(),
-            }
-          : chat
-      )
-    );
-    setMessages((current) => [
-      ...current,
-      {
-        id: `event:${result.event?.id || crypto.randomUUID()}`,
-        fromMe: false,
-        text: result.event?.description || "Conversa transferida para outro telefone.",
-        type: "system",
-        mediaKind: null,
-        mediaUrl: null,
-        sentAt: result.event?.createdAt || new Date().toISOString(),
-        status: null,
-        kind: "system",
-      },
-    ]);
-    window.setTimeout(() => {
-      void loadChats(true);
-      const updated = {
-        ...selectedChat,
-        instanceId: result.instance?.id,
-        instanceLabel: result.instance?.label,
-        sectorId: result.instance?.sectorId,
-        sectorName: result.instance?.sectorName,
-        connectionState: "open" as const,
-        available: true,
-      };
-      void loadMessages(updated, true);
-    }, 800);
   }
 
   return (
@@ -601,11 +431,8 @@ export function WhatsAppConversations() {
                   <ContactAvatar name={chat.name} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate text-sm font-semibold text-zinc-900">
+                      <span className="truncate text-sm font-semibold text-zinc-900">
                         {chat.name}
-                        {routingAvailable && (
-                          <span className={`ml-2 inline-block h-2 w-2 rounded-full ${chat.available ? "bg-emerald-500" : "bg-red-500"}`} />
-                        )}
                       </span>
                       <span className="flex-none text-[11px] text-zinc-400">
                         {formatListTime(chat.lastMessageAt)}
@@ -620,11 +447,6 @@ export function WhatsAppConversations() {
                         </span>
                       )}
                     </span>
-                    {routingAvailable && (
-                      <span className="mt-1 block truncate text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                        {chat.sectorName || "Sem setor"} · {chat.instanceLabel || "WhatsApp"}
-                      </span>
-                    )}
                   </span>
                 </button>
               ))
@@ -662,28 +484,11 @@ export function WhatsAppConversations() {
                   </div>
                   <div className="truncate text-xs text-zinc-500">
                     {selectedChat.phone || "Contato protegido pelo WhatsApp"}
-                    {routingAvailable && (
-                      <span>
-                        {" "}· {selectedChat.sectorName || "Sem setor"} · {selectedChat.instanceLabel || "WhatsApp"}
-                      </span>
-                    )}
                   </div>
                 </div>
-                {routingAvailable && conversationUnavailable && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRecoveryOpen(true);
-                      setTransferTargetId((current) => current || transferTargets[0]?.id || "");
-                    }}
-                    className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-200"
-                  >
-                    Telefone indisponível
-                  </button>
-                )}
                 <button
                   type="button"
-                  onClick={() => void loadMessages(selectedChat)}
+                  onClick={() => void loadMessages(selectedChat.id)}
                   disabled={loadingMessages}
                   className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
                 >
@@ -697,42 +502,6 @@ export function WhatsAppConversations() {
               >
                 <div className="pointer-events-none absolute inset-0 opacity-25 [background-image:radial-gradient(#9a948b_0.7px,transparent_0.7px)] [background-size:16px_16px]" />
                 <div className="relative mx-auto flex max-w-4xl flex-col gap-2">
-                  {routingAvailable && conversationUnavailable && (
-                    <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
-                      <div className="font-semibold text-amber-950">
-                        O telefone desta conversa está desconectado
-                      </div>
-                      <p className="mt-1 text-sm leading-5 text-amber-800">
-                        Reconecte o número atual ou transfira o atendimento para um telefone ativo de um setor permitido para você.
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void connectCurrentPhone()}
-                          disabled={recovering}
-                          className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                        >
-                          Conectar telefone
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRecoveryOpen(true);
-                            setTransferTargetId((current) => current || transferTargets[0]?.id || "");
-                          }}
-                          disabled={recovering || transferTargets.length === 0}
-                          className="rounded-lg border border-amber-400 bg-white px-4 py-2 text-sm font-semibold text-amber-950 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Transferir para telefone ativo
-                        </button>
-                      </div>
-                      {transferTargets.length === 0 && (
-                        <p className="mt-2 text-xs text-amber-700">
-                          Nenhum outro telefone ativo está disponível nos seus setores.
-                        </p>
-                      )}
-                    </div>
-                  )}
                   {messageError && (
                     <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-700">
                       {messageError}
@@ -870,7 +639,7 @@ export function WhatsAppConversations() {
                   <button
                     type="button"
                     onClick={() => fileInput.current?.click()}
-                    disabled={sending || conversationUnavailable}
+                    disabled={sending}
                     className="grid h-11 w-11 flex-none place-items-center rounded-full text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50"
                     aria-label="Anexar imagem"
                     title="Anexar imagem"
@@ -892,20 +661,14 @@ export function WhatsAppConversations() {
                     }}
                     rows={1}
                     maxLength={4_000}
-                    disabled={sending || conversationUnavailable}
-                    placeholder={
-                      conversationUnavailable
-                        ? "Conecte ou transfira o telefone para responder"
-                        : selectedImage
-                          ? "Adicione uma legenda..."
-                          : "Digite uma mensagem"
-                    }
+                    disabled={sending}
+                    placeholder={selectedImage ? "Adicione uma legenda..." : "Digite uma mensagem"}
                     className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-5 text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 focus:bg-white disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={sendCurrentMessage}
-                    disabled={sending || conversationUnavailable || (!draft.trim() && !selectedImage)}
+                    disabled={sending || (!draft.trim() && !selectedImage)}
                     className="grid h-11 w-11 flex-none place-items-center rounded-full bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label={sending ? "Enviando mensagem" : "Enviar mensagem"}
                     title="Enviar mensagem"
@@ -932,133 +695,6 @@ export function WhatsAppConversations() {
           )}
         </main>
       </section>
-      {recoveryOpen && selectedChat && (
-        <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-zinc-950/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Transferir conversa"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target && !recovering) {
-              setRecoveryOpen(false);
-              setRecoveryError(null);
-            }
-          }}
-        >
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
-            <div className="border-b border-zinc-200 px-5 py-4">
-              <h2 className="text-lg font-semibold text-zinc-950">
-                Recuperar atendimento
-              </h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                {selectedChat.name} · {selectedChat.instanceLabel || "WhatsApp"}
-              </p>
-            </div>
-            <div className="space-y-5 p-5">
-              <div className="rounded-xl border border-zinc-200 p-4">
-                <div className="font-semibold text-zinc-900">Conectar o telefone atual</div>
-                <p className="mt-1 text-sm text-zinc-500">
-                  Gere o QR Code para restaurar o mesmo número e continuar normalmente.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void connectCurrentPhone()}
-                  disabled={recovering}
-                  className="mt-3 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
-                >
-                  Conectar telefone
-                </button>
-              </div>
-
-              <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4">
-                <div className="font-semibold text-zinc-900">Transferir para telefone ativo</div>
-                <p className="mt-1 text-sm leading-5 text-zinc-500">
-                  O cliente receberá automaticamente uma mensagem pelo novo número. A troca ficará registrada no histórico.
-                </p>
-                <select
-                  value={transferTargetId}
-                  onChange={(event) => setTransferTargetId(event.target.value)}
-                  className="mt-3 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm"
-                >
-                  <option value="">Escolha o telefone e o setor</option>
-                  {transferTargets.map((instance) => (
-                    <option key={instance.id} value={instance.id}>
-                      {instance.sectorName} · {instance.label}
-                      {instance.phoneNumber ? ` · ${instance.phoneNumber}` : ""}
-                    </option>
-                  ))}
-                </select>
-                {transferTargets.length === 0 && (
-                  <p className="mt-2 text-xs text-amber-700">
-                    Não existe telefone ativo em outro setor permitido para o seu usuário.
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void transferConversation()}
-                  disabled={recovering || !transferTargetId}
-                  className="mt-3 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {recovering ? "Transferindo..." : "Transferir e avisar cliente"}
-                </button>
-              </div>
-
-              {recoveryError && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {recoveryError}
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end border-t border-zinc-200 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setRecoveryOpen(false);
-                  setRecoveryError(null);
-                }}
-                disabled={recovering}
-                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 disabled:opacity-50"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {connectionQr && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-zinc-950/55 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
-            <h2 className="font-semibold text-zinc-950">Conectar {connectionQr.title}</h2>
-            {connectionQr.state === "open" ? (
-              <div className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
-                Telefone conectado com sucesso.
-              </div>
-            ) : connectionQr.qrCode ? (
-              <img src={connectionQr.qrCode} alt="QR Code do WhatsApp" className="mx-auto mt-5 h-64 w-64" />
-            ) : (
-              <div className="mt-5 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
-                A conexão foi solicitada. Tente novamente em alguns segundos para atualizar o QR Code.
-              </div>
-            )}
-            {connectionQr.pairingCode && (
-              <div className="mt-3 font-mono text-lg font-bold text-zinc-900">
-                {connectionQr.pairingCode}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setConnectionQr(null);
-                void loadChats();
-                if (selectedChat) void loadMessages(selectedChat);
-              }}
-              className="mt-5 rounded-lg bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white"
-            >
-              Fechar e atualizar
-            </button>
-          </div>
-        </div>
-      )}
       {previewImage && (
         <ImagePreview
           src={previewImage}
@@ -1078,20 +714,6 @@ function MessageBubble({
   onOpenImage: (src: string) => void;
   onRetry: (message: ClientMessage) => void;
 }) {
-  if (message.kind === "system" || message.type === "system") {
-    return (
-      <div className="my-2 flex justify-center px-4">
-        <div className="max-w-2xl rounded-xl border border-violet-200 bg-violet-50/95 px-4 py-2.5 text-center shadow-sm">
-          <div className="text-xs font-semibold leading-5 text-violet-950">
-            {message.text}
-          </div>
-          <div className="mt-1 text-[10px] font-medium text-violet-500">
-            {formatMessageTime(message.sentAt)} · transferência registrada
-          </div>
-        </div>
-      </div>
-    );
-  }
   const hasImage = Boolean(message.mediaUrl);
   const showText = !hasImage || !["Imagem", "Figurinha", "Mensagem"].includes(message.text);
   return (
@@ -1105,11 +727,6 @@ function MessageBubble({
               : "rounded-tl-sm bg-white"
         }`}
       >
-        {message.sourceInstanceLabel && (
-          <div className="px-1.5 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-            {message.sourceInstanceLabel}
-          </div>
-        )}
         {message.mediaUrl && (
           <MessageImage
             src={message.mediaUrl}

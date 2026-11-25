@@ -5,17 +5,16 @@ import {
   isEvolutionImageMessage,
 } from "@/lib/evolution-chat";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  accessibleInstance,
-  getWhatsAppAccessContext,
-  WhatsAppAccessError,
-} from "@/lib/whatsapp-routing";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 const MAX_BASE64_LENGTH = 32_000_000;
 
 export async function GET(req: NextRequest) {
+  if (!(await isAuthenticated())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   if ((process.env.WHATSAPP_PROVIDER ?? "evolution") !== "evolution") {
     return NextResponse.json(
       { error: "A visualização de imagens está disponível para a Evolution API" },
@@ -29,74 +28,21 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  let remoteJid = req.nextUrl.searchParams.get("jid")?.trim() ?? "";
+  const remoteJid = req.nextUrl.searchParams.get("jid")?.trim() ?? "";
   const messageId = req.nextUrl.searchParams.get("id")?.trim() ?? "";
-  const conversationId =
-    req.nextUrl.searchParams.get("conversationId")?.trim() ?? "";
-  const instanceId = req.nextUrl.searchParams.get("instanceId")?.trim() ?? "";
-  if (!isValidMessageId(messageId)) {
+  if (!isValidRemoteJid(remoteJid) || !isValidMessageId(messageId)) {
     return NextResponse.json({ error: "Imagem inválida" }, { status: 400 });
   }
 
-  try {
-    const context = await getWhatsAppAccessContext();
-    let instance = context.legacyInstance;
-    if (context.routingAvailable) {
-      if (!isUuid(conversationId) || !isUuid(instanceId)) {
-        return NextResponse.json({ error: "Imagem inválida" }, { status: 400 });
-      }
-      const admin = createAdminClient();
-      const { data: conversation, error } = await admin
-        .from("whatsapp_conversations")
-        .select("remote_jid, current_instance_id")
-        .eq("id", conversationId)
-        .eq("store_id", context.storeId)
-        .maybeSingle();
-      if (error) throw error;
-      if (!conversation) {
-        return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
-      }
-      accessibleInstance(context, String(conversation.current_instance_id));
-      const { data: events, error: eventsError } = await admin
-        .from("whatsapp_conversation_events")
-        .select("from_instance_id, to_instance_id")
-        .eq("store_id", context.storeId)
-        .eq("conversation_id", conversationId)
-        .eq("status", "completed");
-      if (eventsError) throw eventsError;
-      const historyInstanceIds = new Set([
-        String(conversation.current_instance_id),
-        ...(events ?? []).flatMap((event) => [
-          event.from_instance_id ? String(event.from_instance_id) : "",
-          event.to_instance_id ? String(event.to_instance_id) : "",
-        ]),
-      ]);
-      if (!historyInstanceIds.has(instanceId)) {
-        throw new WhatsAppAccessError(
-          "Este telefone não faz parte do histórico da conversa",
-          403
-        );
-      }
-      const { data: source, error: sourceError } = await admin
-        .from("whatsapp_instances")
-        .select("instance_name")
-        .eq("id", instanceId)
-        .eq("store_id", context.storeId)
-        .maybeSingle();
-      if (sourceError) throw sourceError;
-      if (!source) {
-        return NextResponse.json({ error: "Telefone não encontrado" }, { status: 404 });
-      }
-      instance = String(source.instance_name);
-      remoteJid = String(conversation.remote_jid);
-    }
-    if (!instance || !isValidRemoteJid(remoteJid)) {
-      return NextResponse.json(
-        { error: "Conecte o WhatsApp para visualizar as imagens" },
-        { status: 409 }
-      );
-    }
+  const instance = await getInstanceName();
+  if (!instance) {
+    return NextResponse.json(
+      { error: "Conecte o WhatsApp para visualizar as imagens" },
+      { status: 409 }
+    );
+  }
 
+  try {
     const messagesPayload = await evolutionRequest(
       `chat/findMessages/${encodeURIComponent(instance)}`,
       {
@@ -151,14 +97,13 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    const status = error instanceof WhatsAppAccessError ? error.status : 502;
     return NextResponse.json(
       {
         error:
           (error as Error).message ||
           "Não foi possível carregar a imagem desta mensagem",
       },
-      { status }
+      { status: 502 }
     );
   }
 }
@@ -238,10 +183,23 @@ function isValidMessageId(value: string): boolean {
   );
 }
 
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value
-  );
+async function isAuthenticated(): Promise<boolean> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return Boolean(user);
+}
+
+async function getInstanceName(): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data: settings } = await admin
+    .from("store_settings")
+    .select("whatsapp_instance")
+    .not("whatsapp_instance", "is", null)
+    .limit(1)
+    .maybeSingle();
+  return settings?.whatsapp_instance ?? null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
